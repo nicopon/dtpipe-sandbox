@@ -1,0 +1,40 @@
+# User specific
+.dotnet_home/
+.nuget_packages/
+.nuget_cache/
+.nuget_plugins/
+.nuget_scratch/
+.notes/
+.scripts/
+.tmp/
+
+# Build results
+[Bb]in/
+[Oo]bj/
+dist/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.suo
+*.user
+*.sln.docstates
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dotnet
+.net/
+artifacts/
+
+# Database / Test Data / Logs
+*.db
+*.duckdb
+*.sqlite
+*.sqlite3
+*.log
+*.arrow
+*.arrows
+*.output
