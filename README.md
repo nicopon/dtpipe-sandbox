@@ -81,7 +81,7 @@ Parquet, CSV and the three main relational databases (PostgreSQL, SQL Server, Or
 | **pandas + SQLAlchemy** | Python DataFrame-based transfer |
 | **Meltano** | Singer tap/target orchestration (ELT) |
 | **Sling** | Go-based data replication engine |
-| **ingestr** | Python CLI built on dlt |
+| **ingestr** | Go CLI data ingestion tool (by Bruin) |
 | **native** | Raw DB CLI tools (psql, bcp, sqlldr) |
 
 Everything runs in isolated Docker containers — nothing is installed on the host.
