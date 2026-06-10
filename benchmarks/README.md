@@ -13,7 +13,7 @@ Competitive performance benchmark comparing **6 data-transfer tools** across
 | **pandas + SQLAlchemy** | DataFrame-based in-memory data transfer | Python |
 | **Meltano** | Full ELT orchestrator using Singer taps/targets | Python |
 | **Sling** | Lightweight data replication engine | Go |
-| **ingestr** | CLI data ingestion tool built on dlt | Python |
+| **ingestr** | CLI data ingestion tool (by Bruin) | Go |
 | **native** | Direct database CLI tools (bcp, psql, sqlldr, sqlplus) | C / shell |
 
 ---
@@ -36,7 +36,7 @@ Host (Linux / macOS / Windows)
 │    │ dtpipe-integ-mssql           │◄───────── │  benchmark-pandas   (python:3.12)   │
 │    │ dtpipe-integ-oracle          │◄───────── │  benchmark-meltano (python:3.12)    │
 │    └────────────────────────────┘            │  benchmark-sling    (python:3.12)    │
-│                                               │  benchmark-ingestr (python:3.12)    │
+│                                               │  benchmark-ingestr (Go binary)      │
 │                                               │  benchmark-native   (ubuntu + OCI)   │
 │                                               └────────────────────────────────────┘
 │
@@ -85,11 +85,16 @@ benchmarks/
 │    ├── benchmark.env                   # DB connection defaults
 │    └── docker-compose-benchmark.yml   # Benchmark container definitions
 ├── docker/
-│    └── benchmark-native/
-│        └── Dockerfile                  # Ubuntu + Oracle Instant Client + DB clients
+│    ├── benchmark-dtpipe/    Dockerfile  # .NET SDK + dtpipe
+│    ├── benchmark-pandas/    Dockerfile  # python:3.12-slim + pandas/SQLAlchemy
+│    ├── benchmark-meltano/   Dockerfile  # python:3.12-slim + meltano + Singer plugins
+│    ├── benchmark-sling/     Dockerfile  # python:3.12-slim + sling
+│    ├── benchmark-ingestr/   Dockerfile  # python:3.12-slim + ingestr (Go binary)
+│    └── benchmark-native/    Dockerfile  # Ubuntu + bcp + psql + sqlldr + sqlplus
 └── scripts/
      ├── benchmarks/
-     │    └── _pandas_bench.py            # pandas/SQLAlchemy benchmark logic
+     │    ├── _pandas_bench.py            # pandas/SQLAlchemy benchmark logic
+     │    └── _sling_bench.py             # Sling benchmark logic
      └── verify_data.py                  # Post-run data integrity checker
 ```
 
@@ -196,16 +201,17 @@ Each tool uses its own table/file prefix to avoid conflicts:
 
 ## Tool Limitations
 
-| Tool | Not supported | Reason |
-|------|---------------|--------|
-| **Meltano** | B01, B05, B09 (Parquet source) | `tap-parquet` fails on `fixed_size_binary[16]` (UUID column) |
-| **Meltano** | B05, B06, B11, B12 (Oracle) | `cx_Oracle` requires native Instant Client not available in the slim image |
-| **ingestr** | B05, B11 (→ Oracle target) | Oracle is not a supported destination in ingestr |
-| **native** | B01, B02, B05, B06, B09, B10 (Parquet ↔ DB) | Native CLI tools don't support the Parquet format |
-| **pandas** | _(all supported)_ | — |
-| **dtpipe** | _(all supported)_ | — |
+> **Not supported** = the tool fundamentally cannot perform this operation (hard limitation).
+> **Not implemented** = the tool supports this use case but it has not been configured in this benchmark.
 
-Unsupported benchmarks are reported as `Not supported` in the final table.
+| Tool | Benchmarks | Status | Reason |
+|------|------------|--------|--------|
+| **Meltano** | B01, B05, B09 (Parquet source) | Not implemented | `tap-parquet` (AE-nv, stable) exists on MeltanoHub but fails on `fixed_size_binary[16]` (UUID column) due to a PyArrow upstream bug — not a design limitation of Meltano |
+| **Meltano** | B05, B06, B11, B12 (Oracle) | Not implemented | `tap-oracle` (Silver) and `target-oracle` (Gold) exist on MeltanoHub but are not configured in this benchmark |
+| **ingestr** | B05, B11 (→ Oracle target) | Not supported | Oracle is not a supported destination in ingestr ([confirmed in official docs](https://bruin-data.github.io/ingestr/)) |
+| **native** | B01, B02, B05, B06, B09, B10 (Parquet ↔ DB) | Not supported | `psql`, `bcp`, `sqlplus`, `sqlldr` have no native Parquet support — they predate the format and only handle text/proprietary binary formats |
+| **pandas** | _(all supported)_ | — | — |
+| **dtpipe** | _(all supported)_ | — | — |
 
 ---
 
@@ -239,13 +245,13 @@ The DB containers are defined in `infra/docker-compose.yml`:
 | `dtpipe-integ-mssql` | `mcr.microsoft.com/azure-sql-edge` | 1434→1433 |
 | `dtpipe-integ-oracle` | `gvenzl/oracle-free:slim` | 1522→1521 |
 
-To manage them independently:
+To manage them independently (run from the repo root):
 
 ```bash
 # Start:
-cd infra/ && ./start_infra.sh
+infra/start_infra.sh
 # Stop:
-cd infra/ && ./stop_infra.sh
+infra/stop_infra.sh
 ```
 
 ---
@@ -258,8 +264,7 @@ cd infra/ && ./stop_infra.sh
 4. **Data integrity**: after each run `verify_data.py` checks row count + min/max/nulls.
 5. **Network**: benchmark containers join the DB network dynamically at runtime —
    no static network references in the infra compose file are required.
-6. **Memory**: peak RSS delta is sampled from the host via `docker stats` at ~1 s intervals,
-   relative to the container's baseline at the start of each run. Because of this sampling
-   rate, **memory figures are only meaningful for transfers that take at least a few seconds**.
-   Sub-second runs will typically report 0 MiB — this is a measurement artifact, not a
-   sign of zero memory usage.
+6. **Memory**: peak cgroup memory delta is polled at ~100 ms intervals by reading
+   `/sys/fs/cgroup/memory.current` inside each container, relative to the container's
+   baseline at the start of each run. This covers all child processes spawned by the tool.
+   Transfers shorter than ~100 ms may still report 0 MiB.

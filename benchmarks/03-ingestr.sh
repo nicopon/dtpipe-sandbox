@@ -96,6 +96,10 @@ echo -e "   Repetitions: $BENCHMARK_REPETITIONS"
 echo -e "   Scope: $BENCHMARK_SCOPE"
 echo ""
 
+# Warm-up: ensure ingestr binary is loaded before the first timed run
+echo -e "${YELLOW}Warming up ingestr...${NC}"
+exec_ingestr_container "ingestr --version" > /dev/null 2>&1 || true
+
 # =============================================================================
 # Benchmark function: Execute an ingestr pipeline N times and record timings
 # =============================================================================

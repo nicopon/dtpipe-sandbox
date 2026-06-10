@@ -38,3 +38,4 @@ artifacts/
 *.arrow
 *.arrows
 *.output
+benchmarks/scripts/__pycache__/*

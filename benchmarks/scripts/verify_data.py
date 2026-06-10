@@ -22,7 +22,6 @@ def get_suffix(rows_str):
 # Load environment configuration
 def load_env():
     env_vars = {}
-     # Look for benchmark.env in the config directory relative to this script
     env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'benchmark.env'))
     if os.path.exists(env_path):
         try:
@@ -33,7 +32,6 @@ def load_env():
                         continue
                     if '=' in line:
                         key, val = line.split('=', 1)
-                         # Clean up bash default parameter values e.g. ${VAR:-default}
                         match = re.match(r'\$\{(?:\w+):-(.+)\}', val)
                         if match:
                             val = match.group(1)
@@ -50,9 +48,9 @@ def run_cmd(args):
         raise Exception(f"Command failed: {' '.join(args)}\nError: {result.stderr.strip()}")
     return result.stdout.strip()
 
-# DuckDB query helper — runs in the tool's own container.
+# DuckDB query helper for files (CSV/Parquet) — runs in the tool's own container.
 # dtpipe and native have no Python runtime, so they fall back to benchmark-pandas.
-_PYTHON_CONTAINER = {
+_FILE_QUERY_CONTAINER = {
     "dtpipe":  "benchmark-pandas",
     "native":  "benchmark-pandas",
     "pandas":  "benchmark-pandas",
@@ -61,63 +59,85 @@ _PYTHON_CONTAINER = {
     "ingestr": "benchmark-ingestr",
 }
 
-def query_file(file_path, tool="pandas"):
-    container = _PYTHON_CONTAINER.get(tool, "benchmark-pandas")
-    from_clause = f"read_csv_auto('{file_path}', ignore_errors=true)" if file_path.endswith('.csv') else f"'{file_path}'"
+# (tool, bench_id) pairs whose CSV output has no header row.
+# bcp queryout (native B04) produces headerless CSV; psql \copy (B08) and sqlplus MARKUP (B12) include headers.
+_HEADERLESS_CSV_CASES = {("native", "B04")}
+
+def query_file(file_path, tool="pandas", bench_id=""):
+    container = _FILE_QUERY_CONTAINER.get(tool, "benchmark-pandas")
+    if file_path.endswith('.csv'):
+        if (tool, bench_id) in _HEADERLESS_CSV_CASES:
+            from_clause = f"read_csv('{file_path}', header=false, names=['id','name','email','amount','country'], ignore_errors=true)"
+        else:
+            from_clause = f"read_csv_auto('{file_path}', ignore_errors=true)"
+    else:
+        from_clause = f"'{file_path}'"
     py_code = f"import duckdb; print('|'.join(map(str, duckdb.query(\"SELECT count(*), min(amount::DOUBLE), max(amount::DOUBLE), coalesce(sum(case when amount is null or amount::VARCHAR = '' then 1 else 0 end), 0) FROM {from_clause}\").fetchone())))"
     args = ["docker", "exec", container, "python3", "-c", py_code]
     res = run_cmd(args)
     parts = res.split('|')
     return int(parts[0]), float(parts[1]), float(parts[2]), int(parts[3])
 
-# Postgres query helper (runs in benchmark-native container using psql)
-def query_postgres(table_name):
-    host = ENV.get("DB_POSTGRES_HOST", "dtpipe-integ-postgres")
-    port = ENV.get("DB_POSTGRES_PORT", "5432")
-    db = ENV.get("DB_POSTGRES_DB", "integration")
-    user = ENV.get("DB_POSTGRES_USER", "postgres")
-    password = ENV.get("DB_POSTGRES_PASSWORD", "password")
-    
-    bash_script = f"env PGPASSWORD='{password}' psql -h '{host}' -p '{port}' -U '{user}' -d '{db}' -t -A -c 'SELECT count(*), min(amount), max(amount), count(*) FILTER (WHERE amount IS NULL) FROM {table_name}'"
-    args = ["docker", "exec", "benchmark-native", "bash", "-c", bash_script]
+# Unified DB query helper — runs in benchmark-native using native Python drivers.
+# Supports: postgres (psycopg2), mssql (pymssql), oracle (oracledb thin mode)
+def query_db(db_type, table_name):
+    if db_type == "postgres":
+        host = ENV.get("DB_POSTGRES_HOST", "dtpipe-integ-postgres")
+        port = ENV.get("DB_POSTGRES_PORT", "5432")
+        db   = ENV.get("DB_POSTGRES_DB",       "integration")
+        user = ENV.get("DB_POSTGRES_USER",     "postgres")
+        pwd  = ENV.get("DB_POSTGRES_PASSWORD", "password")
+        bare = table_name.split('.')[-1]
+        py_code = (
+            f"import psycopg2; "
+            f"conn = psycopg2.connect(host='{host}', port={port}, dbname='{db}', user='{user}', password='{pwd}'); "
+            f"cur = conn.cursor(); "
+            f"cur.execute('SELECT count(*), min(amount::DOUBLE PRECISION), max(amount::DOUBLE PRECISION), COUNT(CASE WHEN amount IS NULL THEN 1 END) FROM {bare}'); "
+            f"row = cur.fetchone(); "
+            f"print('|'.join(map(str, row))); "
+            f"conn.close()"
+        )
+
+    elif db_type == "mssql":
+        host = ENV.get("DB_MSSQL_HOST",     "dtpipe-integ-mssql")
+        port = ENV.get("DB_MSSQL_PORT",     "1433")
+        user = ENV.get("DB_MSSQL_USER",     "sa")
+        pwd  = ENV.get("DB_MSSQL_PASSWORD", "Password123!")
+        bare = table_name.split('.')[-1]
+        py_code = (
+            f"import pymssql; "
+            f"conn = pymssql.connect(server='{host}', port='{port}', database='master', user='{user}', password='{pwd}'); "
+            f"cur = conn.cursor(); "
+            f"cur.execute('SELECT count(*), min(CAST(amount AS FLOAT)), max(CAST(amount AS FLOAT)), COUNT(CASE WHEN amount IS NULL THEN 1 END) FROM {bare}'); "
+            f"row = cur.fetchone(); "
+            f"print('|'.join(map(str, row))); "
+            f"conn.close()"
+        )
+
+    elif db_type == "oracle":
+        host    = ENV.get("DB_ORACLE_HOST",     "dtpipe-integ-oracle")
+        port    = ENV.get("DB_ORACLE_PORT",     "1521")
+        service = ENV.get("DB_ORACLE_SERVICE",  "FREEPDB1")
+        user    = ENV.get("DB_ORACLE_USER",     "testuser")
+        pwd     = ENV.get("DB_ORACLE_PASSWORD", "password")
+        py_code = (
+            f"import oracledb; "
+            f"conn = oracledb.connect(user='{user}', password='{pwd}', dsn='{host}:{port}/{service}'); "
+            f"cur = conn.cursor(); "
+            f"cur.execute('SELECT count(*), min(TO_NUMBER(TO_CHAR(amount))), max(TO_NUMBER(TO_CHAR(amount))), COUNT(CASE WHEN amount IS NULL THEN 1 END) FROM {table_name}'); "
+            f"row = cur.fetchone(); "
+            f"print('|'.join(map(str, row))); "
+            f"conn.close()"
+        )
+
+    else:
+        raise Exception(f"Unknown db_type: {db_type}")
+
+    args = ["docker", "exec", "benchmark-native", "python3", "-c", py_code]
     res = run_cmd(args)
     parts = res.split('|')
     return int(parts[0]), float(parts[1]), float(parts[2]), int(parts[3])
 
-# SQL Server query helper (runs in benchmark-native container using sqlcmd)
-def query_mssql(table_name):
-    host = ENV.get("DB_MSSQL_HOST", "dtpipe-integ-mssql")
-    port = ENV.get("DB_MSSQL_PORT", "1433")
-    user = ENV.get("DB_MSSQL_USER", "sa")
-    password = ENV.get("DB_MSSQL_PASSWORD", "Password123!")
-    
-    query = f"SELECT CAST(count(*) AS VARCHAR) + '|' + CAST(min(amount) AS VARCHAR) + '|' + CAST(max(amount) AS VARCHAR) + '|' + CAST(COUNT(CASE WHEN amount IS NULL THEN 1 END) AS VARCHAR) FROM {table_name}"
-    args = [
-          "docker", "exec", "benchmark-native", "sqlcmd", "-C",
-          "-S", f"{host},{port}", "-U", user, "-P", password,
-          "-d", "master", "-h", "-1", "-W", "-Q", query
-      ]
-    res = run_cmd(args)
-      # Output might have trailing whitespace or "(1 rows affected)" line
-    lines = [line.strip() for line in res.split('\n') if line.strip() and not line.startswith('(')]
-    if not lines:
-        raise Exception(f"No output from SQL Server for table {table_name}")
-    parts = lines[0].split('|')
-    return int(parts[0]), float(parts[1]), float(parts[2]), int(parts[3])
-
-# Oracle query helper (runs in benchmark-native container using sqlplus)
-def query_oracle(table_name):
-    host = ENV.get("DB_ORACLE_HOST", "dtpipe-integ-oracle")
-    port = ENV.get("DB_ORACLE_PORT", "1521")
-    service = ENV.get("DB_ORACLE_SERVICE", "FREEPDB1")
-    user = ENV.get("DB_ORACLE_USER", "testuser")
-    password = ENV.get("DB_ORACLE_PASSWORD", "password")
-    
-    bash_script = f"sqlplus -S '{user}/{password}@//{host}:{port}/{service}' <<EOF\nSET HEADING OFF FEEDBACK OFF PAGESIZE 0 TAB OFF\nSELECT count(*)||'|'||min(amount)||'|'||max(amount)||'|'||COUNT(CASE WHEN amount IS NULL THEN 1 END) FROM {table_name};\nEXIT;\nEOF"
-    args = ["docker", "exec", "benchmark-native", "bash", "-c", bash_script]
-    res = run_cmd(args)
-    parts = res.split('|')
-    return int(parts[0]), float(parts[1]), float(parts[2]), int(parts[3])
 
 def main():
     if len(sys.argv) < 4:
@@ -127,74 +147,74 @@ def main():
     tool = sys.argv[1].lower()
     bench_id = sys.argv[2].upper()
     rows = sys.argv[3]
-    
+
     suffix = get_suffix(rows)
     suffix_upper = suffix.upper()
-    
+
     source_desc = ""
     target_desc = ""
-    
+
     parquet_file = f"/bench/artifacts/source_data_{suffix}.parquet"
     csv_file = f"/bench/artifacts/source_data_{suffix}.csv"
-    
-     # Resolve target table/file names
+
+    # Resolve target table/file names
     if tool == "dtpipe":
         pg_target = f"dtpipe_bench_pg" if bench_id == "B01" else "dtpipe_bench_pg_csv"
         mssql_target = f"dtpipe_bench_mssql" if bench_id == "B03" else "dtpipe_bench_mssql_pq"
         oracle_target = f"DTPIPE_BENCH_ORACLE" if bench_id == "B05" else "DTPIPE_BENCH_ORACLE_CSV"
-        
+
         pq_target_file = f"/bench/artifacts/dtpipe_bench_pg_to_pq.parquet" if bench_id == "B02" else \
                           (f"/bench/artifacts/dtpipe_bench_oracle_to_pq.parquet" if bench_id == "B06" else f"/bench/artifacts/dtpipe_bench_mssql_to_pq.parquet")
-                          
+
         csv_target_file = f"/bench/artifacts/dtpipe_bench_mssql_to_csv.csv" if bench_id == "B04" else \
                            (f"/bench/artifacts/dtpipe_bench_pg_to_csv.csv" if bench_id == "B08" else f"/bench/artifacts/dtpipe_bench_oracle_to_csv.csv")
     elif tool == "pandas":
         pg_target = f"pandas_bench_pg" if bench_id == "B01" else "pandas_bench_pg_csv"
         mssql_target = f"pandas_bench_mssql" if bench_id == "B03" else "pandas_bench_mssql_pq"
         oracle_target = f"pandas_bench_oracle" if bench_id == "B05" else "pandas_bench_oracle_csv"
-        
+
         pq_target_file = f"/bench/artifacts/pandas_bench_pg_to_pq.parquet" if bench_id == "B02" else \
                           (f"/bench/artifacts/pandas_bench_oracle_to_pq.parquet" if bench_id == "B06" else f"/bench/artifacts/pandas_bench_mssql_to_pq.parquet")
-                          
+
         csv_target_file = f"/bench/artifacts/pandas_bench_mssql_to_csv.csv" if bench_id == "B04" else \
                            (f"/bench/artifacts/pandas_bench_pg_to_csv.csv" if bench_id == "B08" else f"/bench/artifacts/pandas_bench_oracle_to_csv.csv")
     elif tool == "meltano":
         pg_target = f"meltano_bench_pg" if bench_id == "B01" else "meltano_bench_pg_csv"
         mssql_target = f"meltano_bench_mssql" if bench_id == "B03" else "meltano_bench_mssql_pq"
         oracle_target = f"meltano_bench_oracle" if bench_id == "B05" else "meltano_bench_oracle_csv"
-        
+
         pq_target_file = f"/bench/artifacts/meltano_bench_pg_to_pq.parquet" if bench_id == "B02" else \
                           (f"/bench/artifacts/meltano_bench_oracle_to_pq.parquet" if bench_id == "B06" else f"/bench/artifacts/meltano_bench_mssql_to_pq.parquet")
-                          
+
         csv_target_file = f"/bench/artifacts/meltano_bench_mssql_to_csv.csv" if bench_id == "B04" else \
                            (f"/bench/artifacts/meltano_bench_pg_to_csv.csv" if bench_id == "B08" else f"/bench/artifacts/meltano_bench_oracle_to_csv.csv")
     elif tool == "sling":
         pg_target = f"public.sling_bench_pg" if bench_id == "B01" else "public.sling_bench_pg_csv"
         mssql_target = f"dbo.sling_bench_mssql" if bench_id == "B03" else "dbo.sling_bench_mssql_pq"
         oracle_target = f"TESTUSER.SLING_BENCH_ORACLE" if bench_id == "B05" else "TESTUSER.SLING_BENCH_ORACLE_CSV"
-        
+
         pq_target_file = f"/bench/artifacts/sling_bench_pg_to_pq.parquet" if bench_id == "B02" else \
                           (f"/bench/artifacts/sling_bench_oracle_to_pq.parquet" if bench_id == "B06" else f"/bench/artifacts/sling_bench_mssql_to_pq.parquet")
-                          
+
         csv_target_file = f"/bench/artifacts/sling_bench_mssql_to_csv.csv" if bench_id == "B04" else \
                            (f"/bench/artifacts/sling_bench_pg_to_csv.csv" if bench_id == "B08" else f"/bench/artifacts/sling_bench_oracle_to_csv.csv")
     elif tool == "ingestr":
         pg_target = f"ingestr_bench_pg" if bench_id == "B01" else "ingestr_bench_pg_csv"
         mssql_target = f"ingestr_bench_mssql" if bench_id == "B03" else "ingestr_bench_mssql_pq"
         oracle_target = f"INGESTR_BENCH_ORACLE" if bench_id == "B05" else "INGESTR_BENCH_ORACLE_CSV"
-        
+
         pq_target_file = f"/bench/artifacts/ingestr_bench_pg_to_pq.parquet" if bench_id == "B02" else \
                           (f"/bench/artifacts/ingestr_bench_oracle_to_pq.parquet" if bench_id == "B06" else f"/bench/artifacts/ingestr_bench_mssql_to_pq.parquet")
-                          
+
         csv_target_file = f"/bench/artifacts/ingestr_bench_mssql_to_csv.csv" if bench_id == "B04" else \
                            (f"/bench/artifacts/ingestr_bench_pg_to_csv.csv" if bench_id == "B08" else f"/bench/artifacts/ingestr_bench_oracle_to_csv.csv")
     elif tool == "native":
         pg_target = f"native_bench_pg"
         mssql_target = f"native_bench_mssql"
         oracle_target = f"NATIVE_BENCH_ORACLE"
-        
+
         pq_target_file = None
-        
+
         csv_target_file = f"/bench/artifacts/native_bench_mssql_to_csv.csv" if bench_id == "B04" else \
                            (f"/bench/artifacts/native_bench_pg_to_csv.csv" if bench_id == "B08" else f"/bench/artifacts/native_bench_oracle_to_csv.csv")
     else:
@@ -202,84 +222,82 @@ def main():
         sys.exit(1)
 
     try:
-          # Get Source and Target stats
-        if bench_id == "B01": # Parquet -> PostgreSQL
+        if bench_id == "B01":  # Parquet -> PostgreSQL
             source_desc = f"Parquet: {parquet_file}"
             target_desc = f"Postgres table: {pg_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=parquet_file)
-            t_rows, t_min, t_max, t_nulls = query_postgres(pg_target)
-            
-        elif bench_id == "B02": # PostgreSQL -> Parquet
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, bench_id=bench_id, file_path=parquet_file)
+            t_rows, t_min, t_max, t_nulls = query_db("postgres", pg_target)
+
+        elif bench_id == "B02":  # PostgreSQL -> Parquet
             source_desc = f"Postgres table: benchmark_source_{suffix}"
             target_desc = f"Parquet: {pq_target_file}"
-            s_rows, s_min, s_max, s_nulls = query_postgres(f"benchmark_source_{suffix}")
-            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=pq_target_file)
-            
-        elif bench_id == "B03": # CSV -> SQL Server
+            s_rows, s_min, s_max, s_nulls = query_db("postgres", f"benchmark_source_{suffix}")
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, bench_id=bench_id, file_path=pq_target_file)
+
+        elif bench_id == "B03":  # CSV -> SQL Server
             source_desc = f"CSV: {csv_file}"
             target_desc = f"SQL Server table: {mssql_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=csv_file)
-            t_rows, t_min, t_max, t_nulls = query_mssql(mssql_target)
-            
-        elif bench_id == "B04": # SQL Server -> CSV
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, bench_id=bench_id, file_path=csv_file)
+            t_rows, t_min, t_max, t_nulls = query_db("mssql", mssql_target)
+
+        elif bench_id == "B04":  # SQL Server -> CSV
             source_desc = f"SQL Server table: benchmark_source_{suffix}"
             target_desc = f"CSV: {csv_target_file}"
-            s_rows, s_min, s_max, s_nulls = query_mssql(f"benchmark_source_{suffix}")
-            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=csv_target_file)
-            
-        elif bench_id == "B05": # Parquet -> Oracle
+            s_rows, s_min, s_max, s_nulls = query_db("mssql", f"benchmark_source_{suffix}")
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, bench_id=bench_id, file_path=csv_target_file)
+
+        elif bench_id == "B05":  # Parquet -> Oracle
             source_desc = f"Parquet: {parquet_file}"
             target_desc = f"Oracle table: {oracle_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=parquet_file)
-            t_rows, t_min, t_max, t_nulls = query_oracle(oracle_target)
-            
-        elif bench_id == "B06": # Oracle -> Parquet
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, bench_id=bench_id, file_path=parquet_file)
+            t_rows, t_min, t_max, t_nulls = query_db("oracle", oracle_target)
+
+        elif bench_id == "B06":  # Oracle -> Parquet
             source_desc = f"Oracle table: BENCHMARK_SOURCE_{suffix_upper}"
             target_desc = f"Parquet: {pq_target_file}"
-            s_rows, s_min, s_max, s_nulls = query_oracle(f"BENCHMARK_SOURCE_{suffix_upper}")
-            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=pq_target_file)
-            
-        elif bench_id == "B07": # CSV -> PostgreSQL
+            s_rows, s_min, s_max, s_nulls = query_db("oracle", f"BENCHMARK_SOURCE_{suffix_upper}")
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, bench_id=bench_id, file_path=pq_target_file)
+
+        elif bench_id == "B07":  # CSV -> PostgreSQL
             source_desc = f"CSV: {csv_file}"
             target_desc = f"Postgres table: {pg_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=csv_file)
-            t_rows, t_min, t_max, t_nulls = query_postgres(pg_target)
-            
-        elif bench_id == "B08": # PostgreSQL -> CSV
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, bench_id=bench_id, file_path=csv_file)
+            t_rows, t_min, t_max, t_nulls = query_db("postgres", pg_target)
+
+        elif bench_id == "B08":  # PostgreSQL -> CSV
             source_desc = f"Postgres table: benchmark_source_{suffix}"
             target_desc = f"CSV: {csv_target_file}"
-            s_rows, s_min, s_max, s_nulls = query_postgres(f"benchmark_source_{suffix}")
-            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=csv_target_file)
-            
-        elif bench_id == "B09": # Parquet -> SQL Server
+            s_rows, s_min, s_max, s_nulls = query_db("postgres", f"benchmark_source_{suffix}")
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, bench_id=bench_id, file_path=csv_target_file)
+
+        elif bench_id == "B09":  # Parquet -> SQL Server
             source_desc = f"Parquet: {parquet_file}"
             target_desc = f"SQL Server table: {mssql_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=parquet_file)
-            t_rows, t_min, t_max, t_nulls = query_mssql(mssql_target)
-            
-        elif bench_id == "B10": # SQL Server -> Parquet
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, bench_id=bench_id, file_path=parquet_file)
+            t_rows, t_min, t_max, t_nulls = query_db("mssql", mssql_target)
+
+        elif bench_id == "B10":  # SQL Server -> Parquet
             source_desc = f"SQL Server table: benchmark_source_{suffix}"
             target_desc = f"Parquet: {pq_target_file}"
-            s_rows, s_min, s_max, s_nulls = query_mssql(f"benchmark_source_{suffix}")
-            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=pq_target_file)
-            
-        elif bench_id == "B11": # CSV -> Oracle
+            s_rows, s_min, s_max, s_nulls = query_db("mssql", f"benchmark_source_{suffix}")
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, bench_id=bench_id, file_path=pq_target_file)
+
+        elif bench_id == "B11":  # CSV -> Oracle
             source_desc = f"CSV: {csv_file}"
             target_desc = f"Oracle table: {oracle_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=csv_file)
-            t_rows, t_min, t_max, t_nulls = query_oracle(oracle_target)
-            
-        elif bench_id == "B12": # Oracle -> CSV
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, bench_id=bench_id, file_path=csv_file)
+            t_rows, t_min, t_max, t_nulls = query_db("oracle", oracle_target)
+
+        elif bench_id == "B12":  # Oracle -> CSV
             source_desc = f"Oracle table: BENCHMARK_SOURCE_{suffix_upper}"
             target_desc = f"CSV: {csv_target_file}"
-            s_rows, s_min, s_max, s_nulls = query_oracle(f"BENCHMARK_SOURCE_{suffix_upper}")
-            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=csv_target_file)
-            
+            s_rows, s_min, s_max, s_nulls = query_db("oracle", f"BENCHMARK_SOURCE_{suffix_upper}")
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, bench_id=bench_id, file_path=csv_target_file)
+
         else:
             print(f"Unknown benchmark ID: {bench_id}")
             sys.exit(1)
 
-          # Print detailed statistics comparison
         print(f"==================================================")
         print(f" VERIFICATION: {tool.upper()} - {bench_id}")
         print(f"==================================================")
@@ -293,12 +311,12 @@ def main():
         print(f"Max Amount    | {s_max:<16.2f} | {t_max:<16.2f}")
         print(f"Null Amounts  | {s_nulls:<16} | {t_nulls:<16}")
         print(f"--------------------------------------------------")
-        
+
         row_match = (s_rows == t_rows)
         min_match = (abs(s_min - t_min) < 0.01)
         max_match = (abs(s_max - t_max) < 0.01)
         nulls_match = (s_nulls == t_nulls)
-        
+
         if row_match and min_match and max_match and nulls_match:
             print("\033[92mRESULT: PASS (Data matches)\033[0m")
             return True
@@ -312,10 +330,10 @@ def main():
                 errors.append(f"Max amount mismatch (Source={s_max}, Target={t_max})")
             if not nulls_match:
                 errors.append(f"Null count mismatch (Source={s_nulls}, Target={t_nulls})")
-            
+
             print(f"\033[91mRESULT: FAIL ({', '.join(errors)})\033[0m")
             return False
-            
+
     except Exception as e:
         print(f"\033[91mRESULT: ERROR (Unable to verify) - {str(e)}\033[0m")
         return False

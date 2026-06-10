@@ -83,6 +83,10 @@ echo -e "   Repetitions: $BENCHMARK_REPETITIONS"
 echo -e "   Scope: $BENCHMARK_SCOPE"
 echo ""
 
+# Warm-up: ensure sling binary is loaded before the first timed run
+echo -e "${YELLOW}Warming up sling...${NC}"
+exec_sling_container "sling --version" > /dev/null 2>&1 || true
+
 # =============================================================================
 # Benchmark function: Execute a sling pipeline N times and record timings
 # Uses sling CLI to run extract -> load operations

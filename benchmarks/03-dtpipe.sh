@@ -90,6 +90,10 @@ echo -e "   Repetitions: $BENCHMARK_REPETITIONS"
 echo -e "   Scope: $BENCHMARK_SCOPE"
 echo ""
 
+# Warm-up: ensure dtpipe (.NET tool) is JIT-compiled before the first timed run
+echo -e "${YELLOW}Warming up dtpipe...${NC}"
+container_exec benchmark-dtpipe bash -c 'export PATH="${PATH}:/root/.dotnet/tools" && dtpipe --version' > /dev/null 2>&1 || true
+
 # =============================================================================
 # Benchmark function: Execute a dtpipe pipeline N times and record timings
 # Writes a runner script into the container to avoid shell quoting issues

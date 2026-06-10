@@ -83,7 +83,7 @@ with open('$json_file') as f:
 benchmarks = data.get('benchmarks', {})
 for bid, bdata in benchmarks.items():
     avg = bdata.get('avg_duration_ms', 0)
-    mem = bdata.get('avg_peak_mem_mb', 0)
+    mem = 'N/A' if avg in ('Not supported', 'Not implemented') else bdata.get('avg_peak_mem_mb', 0)
     print(f'{bid}|{avg}|{mem}')
 " 2>/dev/null || echo "")
 }
@@ -115,6 +115,19 @@ BENCHMARK_DESCRIPTIONS=(
 
 
 # =============================================================================
+# Collect host machine information
+# =============================================================================
+HOST_OS="$(uname -s)"
+HOST_ARCH="$(uname -m)"
+HOST_CPUS="$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo '?')"
+HOST_RAM="$(sysctl -n hw.memsize 2>/dev/null | awk '{printf "%.0f GiB", $1/1073741824}' \
+    || grep MemTotal /proc/meminfo 2>/dev/null | awk '{printf "%.0f GiB", $2/1048576}' \
+    || echo '?')"
+HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
+    || grep 'model name' /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | xargs \
+    || echo '?')"
+
+# =============================================================================
 # Generate Markdown report
 # =============================================================================
 {
@@ -129,6 +142,9 @@ BENCHMARK_DESCRIPTIONS=(
     echo "| Source rows | $(python3 -c "print(f'{int($BENCHMARK_ROWS):,}')") |"
     echo "| Repetitions | $BENCHMARK_REPETITIONS |"
     echo "| Date | $(date -u +"%Y-%m-%d %H:%M UTC") |"
+    echo "| Host OS | ${HOST_OS} ${HOST_ARCH} |"
+    echo "| CPU | ${HOST_CPU_MODEL} (${HOST_CPUS} cores) |"
+    echo "| Memory | ${HOST_RAM} |"
     echo ""
     echo "---"
     echo ""
@@ -155,9 +171,8 @@ BENCHMARK_DESCRIPTIONS=(
     echo ""
     echo "## Comparative Table — Peak Memory Delta (avg MiB)"
     echo ""
-    echo "> Peak RSS increase measured from container baseline during transfer."
-    echo "> Values are meaningful only for transfers that take at least a few seconds;"
-    echo "> sub-second runs may report 0 MiB due to the ~1 s sampling interval."
+    echo "> Peak cgroup memory increase measured from container baseline during transfer."
+    echo "> N/A = not supported or not implemented for this tool."
     echo ""
     echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
     echo "|:---|:---:|:---:|:---:|:---:|:---:|:---:|"
@@ -328,7 +343,14 @@ report = {
      'configuration': {
          'benchmark_rows': $BENCHMARK_ROWS,
          'repetitions': $BENCHMARK_REPETITIONS,
-         'date': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+         'date': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+         'host': {
+             'os': '$HOST_OS',
+             'arch': '$HOST_ARCH',
+             'cpu': '$HOST_CPU_MODEL',
+             'cpu_cores': int('$HOST_CPUS') if '$HOST_CPUS'.isdigit() else None,
+             'ram': '$HOST_RAM'
+         }
      },
      'benchmarks': {}
 }

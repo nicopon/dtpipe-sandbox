@@ -52,6 +52,12 @@ ENV PATH=$ORACLE_HOME:/opt/mssql-tools18/bin:$PATH
 # Configure the dynamic linker
 RUN echo $ORACLE_HOME > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 
+# Python3 + native DB drivers for data verification
+RUN apt-get update && apt-get install -y python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir psycopg2-binary pymssql oracledb
+
 # Workdir mapping target
 WORKDIR /bench
 

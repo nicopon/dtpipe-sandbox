@@ -95,6 +95,10 @@ echo -e "   Repetitions: $BENCHMARK_REPETITIONS"
 echo -e "   Scope: $BENCHMARK_SCOPE"
 echo ""
 
+# Warm-up: ensure native CLI tools are loaded before the first timed run
+echo -e "${YELLOW}Warming up native tools...${NC}"
+exec_native_container "psql --version && sqlcmd -? > /dev/null 2>&1; sqlplus -V" > /dev/null 2>&1 || true
+
 # =============================================================================
 # Benchmark function: Execute a command N times and record timings
 # =============================================================================

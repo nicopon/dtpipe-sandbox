@@ -172,6 +172,10 @@ run_python_benchmark() {
     fi
 }
 
+# Warm-up: trigger Python/pandas import so the first timed run is not a cold start
+echo -e "${YELLOW}Warming up pandas...${NC}"
+exec_pandas_container "python3 -c 'import pandas, sqlalchemy, pyarrow'" > /dev/null 2>&1 || true
+
 # Use Python-based benchmarks for pandas
 run_python_benchmark "B01" "Parquet → PostgreSQL"
 run_python_benchmark "B02" "PostgreSQL → Parquet"  

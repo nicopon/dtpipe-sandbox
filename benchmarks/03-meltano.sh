@@ -94,6 +94,10 @@ echo -e "   Repetitions: $BENCHMARK_REPETITIONS"
 echo -e "   Scope: $BENCHMARK_SCOPE"
 echo ""
 
+# Warm-up: ensure meltano and its plugins are loaded before the first timed run
+echo -e "${YELLOW}Warming up meltano...${NC}"
+exec_meltano_container "meltano --version" > /dev/null 2>&1 || true
+
 # Helper to run database drops prior to Meltano runs to ensure a clean schema
 drop_target_table() {
     local target_db="$1"
@@ -101,7 +105,7 @@ drop_target_table() {
     
     if [[ "$target_db" == "postgres" ]]; then
         COMPOSE_PROJECT_DIR="$REPO_ROOT/infra"
-         container_compose -f "docker-compose.yml" exec dtpipe-integ-postgres psql -U postgres -d integration -c "DROP TABLE IF EXISTS public.${table_name} CASCADE" >/dev/null 2>&1 || true
+         container_compose -f "docker-compose.yml" exec postgres psql -U postgres -d integration -c "DROP TABLE IF EXISTS public.${table_name} CASCADE" >/dev/null 2>&1 || true
     elif [[ "$target_db" == "mssql" ]]; then
         COMPOSE_PROJECT_DIR="$CONFIG_DIR"
          container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml exec benchmark-native sqlcmd -C -S dtpipe-integ-mssql,1433 -U sa -P Password123! -Q "IF OBJECT_ID('${table_name}', 'U') IS NOT NULL DROP TABLE ${table_name}" >/dev/null 2>&1 || true
@@ -120,8 +124,8 @@ move_output_file() {
     rm -f "$final_path"
 
     if [[ "$type" == "parquet" ]]; then
-        local search_pattern="$ARTIFACTS_DIR/meltano_bench_out/${stream_name}/*.parquet"
-        # Find latest parquet file matching pattern
+        # Match *.parquet and *.gz.parquet (target-parquet may compress output)
+        local search_pattern="$ARTIFACTS_DIR/meltano_bench_out/${stream_name}/*parquet"
         local latest_file
         latest_file=$(ls -t $search_pattern 2>/dev/null | head -n 1 || echo "")
         if [[ -n "$latest_file" ]]; then
@@ -156,8 +160,8 @@ run_pipeline() {
 
     # Check support
     if [[ "$is_supported" == "false" ]]; then
-        echo -e "${YELLOW}$bench_id: $description [NOT SUPPORTED by real Meltano]${NC}"
-        echo "$bench_id|$description|Not supported" >> "$RESULTS_CSV"
+        echo -e "${YELLOW}$bench_id: $description [NOT IMPLEMENTED]${NC}"
+        echo "$bench_id|$description|Not implemented" >> "$RESULTS_CSV"
         return
     fi
 
@@ -278,7 +282,7 @@ run_pipeline "B01" "Parquet → PostgreSQL" "false"
 # B02: PostgreSQL → Parquet
 run_pipeline "B02" "PostgreSQL → Parquet" "true" \
     "tap-postgres" "target-parquet" \
-    "meltano select tap-postgres --clear && meltano select tap-postgres 'public-benchmark_source_${SUFFIX}' '*' && meltano config set target-parquet destination_path '/bench/artifacts/meltano_bench_out'" \
+    "rm -f .meltano/run/tap-postgres/tap.properties.json .meltano/run/tap-postgres/tap.properties.cache_key && meltano select tap-postgres --clear && meltano select tap-postgres 'public-benchmark_source_${SUFFIX}' '*' && meltano config set target-parquet destination_path '/bench/artifacts/meltano_bench_out'" \
     "move_output_file parquet public-benchmark_source_${SUFFIX} /bench/artifacts/meltano_bench_pg_to_pq.parquet"
 
 # B03: CSV → SQL Server
@@ -290,7 +294,7 @@ run_pipeline "B03" "CSV → SQL Server" "true" \
 # B04: SQL Server → CSV
 run_pipeline "B04" "SQL Server → CSV" "true" \
     "tap-mssql" "target-csv" \
-    "meltano select tap-mssql --clear && meltano select tap-mssql 'dbo-benchmark_source_${SUFFIX}' '*' && meltano config set target-csv destination_path '/bench/artifacts/meltano_bench_out_csv'" \
+    "rm -f .meltano/run/tap-mssql/tap.properties.json .meltano/run/tap-mssql/tap.properties.cache_key && meltano select tap-mssql --clear && meltano select tap-mssql 'dbo-benchmark_source_${SUFFIX}' '*' && meltano config set target-csv destination_path '/bench/artifacts/meltano_bench_out_csv'" \
     "move_output_file csv dbo-benchmark_source_${SUFFIX} /bench/artifacts/meltano_bench_mssql_to_csv.csv"
 
 # B05: Parquet → Oracle (Not supported)
@@ -308,7 +312,7 @@ run_pipeline "B07" "CSV → PostgreSQL" "true" \
 # B08: PostgreSQL → CSV
 run_pipeline "B08" "PostgreSQL → CSV" "true" \
     "tap-postgres" "target-csv" \
-    "meltano select tap-postgres --clear && meltano select tap-postgres 'public-benchmark_source_${SUFFIX}' '*' && meltano config set target-csv destination_path '/bench/artifacts/meltano_bench_out_csv'" \
+    "rm -f .meltano/run/tap-postgres/tap.properties.json .meltano/run/tap-postgres/tap.properties.cache_key && meltano select tap-postgres --clear && meltano select tap-postgres 'public-benchmark_source_${SUFFIX}' '*' && meltano config set target-csv destination_path '/bench/artifacts/meltano_bench_out_csv'" \
     "move_output_file csv public-benchmark_source_${SUFFIX} /bench/artifacts/meltano_bench_pg_to_csv.csv"
 
 # B09: Parquet → SQL Server (Not supported)
@@ -317,7 +321,7 @@ run_pipeline "B09" "Parquet → SQL Server" "false"
 # B10: SQL Server → Parquet
 run_pipeline "B10" "SQL Server → Parquet" "true" \
     "tap-mssql" "target-parquet" \
-    "meltano select tap-mssql --clear && meltano select tap-mssql 'dbo-benchmark_source_${SUFFIX}' '*' && meltano config set target-parquet destination_path '/bench/artifacts/meltano_bench_out'" \
+    "rm -f .meltano/run/tap-mssql/tap.properties.json .meltano/run/tap-mssql/tap.properties.cache_key && meltano select tap-mssql --clear && meltano select tap-mssql 'dbo-benchmark_source_${SUFFIX}' '*' && meltano config set target-parquet destination_path '/bench/artifacts/meltano_bench_out'" \
     "move_output_file parquet dbo-benchmark_source_${SUFFIX} /bench/artifacts/meltano_bench_mssql_to_pq.parquet"
 
 # B11: CSV → Oracle (Not supported)
