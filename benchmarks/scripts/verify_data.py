@@ -50,11 +50,22 @@ def run_cmd(args):
         raise Exception(f"Command failed: {' '.join(args)}\nError: {result.stderr.strip()}")
     return result.stdout.strip()
 
-# DuckDB query helper (runs in benchmark-sling container)
-def query_file(file_path):
+# DuckDB query helper — runs in the tool's own container.
+# dtpipe and native have no Python runtime, so they fall back to benchmark-pandas.
+_PYTHON_CONTAINER = {
+    "dtpipe":  "benchmark-pandas",
+    "native":  "benchmark-pandas",
+    "pandas":  "benchmark-pandas",
+    "meltano": "benchmark-meltano",
+    "sling":   "benchmark-sling",
+    "ingestr": "benchmark-ingestr",
+}
+
+def query_file(file_path, tool="pandas"):
+    container = _PYTHON_CONTAINER.get(tool, "benchmark-pandas")
     from_clause = f"read_csv_auto('{file_path}', ignore_errors=true)" if file_path.endswith('.csv') else f"'{file_path}'"
     py_code = f"import duckdb; print('|'.join(map(str, duckdb.query(\"SELECT count(*), min(amount::DOUBLE), max(amount::DOUBLE), coalesce(sum(case when amount is null or amount::VARCHAR = '' then 1 else 0 end), 0) FROM {from_clause}\").fetchone())))"
-    args = ["docker", "exec", "benchmark-sling", "python3", "-c", py_code]
+    args = ["docker", "exec", container, "python3", "-c", py_code]
     res = run_cmd(args)
     parts = res.split('|')
     return int(parts[0]), float(parts[1]), float(parts[2]), int(parts[3])
@@ -195,74 +206,74 @@ def main():
         if bench_id == "B01": # Parquet -> PostgreSQL
             source_desc = f"Parquet: {parquet_file}"
             target_desc = f"Postgres table: {pg_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(parquet_file)
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=parquet_file)
             t_rows, t_min, t_max, t_nulls = query_postgres(pg_target)
             
         elif bench_id == "B02": # PostgreSQL -> Parquet
             source_desc = f"Postgres table: benchmark_source_{suffix}"
             target_desc = f"Parquet: {pq_target_file}"
             s_rows, s_min, s_max, s_nulls = query_postgres(f"benchmark_source_{suffix}")
-            t_rows, t_min, t_max, t_nulls = query_file(pq_target_file)
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=pq_target_file)
             
         elif bench_id == "B03": # CSV -> SQL Server
             source_desc = f"CSV: {csv_file}"
             target_desc = f"SQL Server table: {mssql_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(csv_file)
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=csv_file)
             t_rows, t_min, t_max, t_nulls = query_mssql(mssql_target)
             
         elif bench_id == "B04": # SQL Server -> CSV
             source_desc = f"SQL Server table: benchmark_source_{suffix}"
             target_desc = f"CSV: {csv_target_file}"
             s_rows, s_min, s_max, s_nulls = query_mssql(f"benchmark_source_{suffix}")
-            t_rows, t_min, t_max, t_nulls = query_file(csv_target_file)
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=csv_target_file)
             
         elif bench_id == "B05": # Parquet -> Oracle
             source_desc = f"Parquet: {parquet_file}"
             target_desc = f"Oracle table: {oracle_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(parquet_file)
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=parquet_file)
             t_rows, t_min, t_max, t_nulls = query_oracle(oracle_target)
             
         elif bench_id == "B06": # Oracle -> Parquet
             source_desc = f"Oracle table: BENCHMARK_SOURCE_{suffix_upper}"
             target_desc = f"Parquet: {pq_target_file}"
             s_rows, s_min, s_max, s_nulls = query_oracle(f"BENCHMARK_SOURCE_{suffix_upper}")
-            t_rows, t_min, t_max, t_nulls = query_file(pq_target_file)
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=pq_target_file)
             
         elif bench_id == "B07": # CSV -> PostgreSQL
             source_desc = f"CSV: {csv_file}"
             target_desc = f"Postgres table: {pg_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(csv_file)
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=csv_file)
             t_rows, t_min, t_max, t_nulls = query_postgres(pg_target)
             
         elif bench_id == "B08": # PostgreSQL -> CSV
             source_desc = f"Postgres table: benchmark_source_{suffix}"
             target_desc = f"CSV: {csv_target_file}"
             s_rows, s_min, s_max, s_nulls = query_postgres(f"benchmark_source_{suffix}")
-            t_rows, t_min, t_max, t_nulls = query_file(csv_target_file)
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=csv_target_file)
             
         elif bench_id == "B09": # Parquet -> SQL Server
             source_desc = f"Parquet: {parquet_file}"
             target_desc = f"SQL Server table: {mssql_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(parquet_file)
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=parquet_file)
             t_rows, t_min, t_max, t_nulls = query_mssql(mssql_target)
             
         elif bench_id == "B10": # SQL Server -> Parquet
             source_desc = f"SQL Server table: benchmark_source_{suffix}"
             target_desc = f"Parquet: {pq_target_file}"
             s_rows, s_min, s_max, s_nulls = query_mssql(f"benchmark_source_{suffix}")
-            t_rows, t_min, t_max, t_nulls = query_file(pq_target_file)
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=pq_target_file)
             
         elif bench_id == "B11": # CSV -> Oracle
             source_desc = f"CSV: {csv_file}"
             target_desc = f"Oracle table: {oracle_target}"
-            s_rows, s_min, s_max, s_nulls = query_file(csv_file)
+            s_rows, s_min, s_max, s_nulls = query_file(tool=tool, file_path=csv_file)
             t_rows, t_min, t_max, t_nulls = query_oracle(oracle_target)
             
         elif bench_id == "B12": # Oracle -> CSV
             source_desc = f"Oracle table: BENCHMARK_SOURCE_{suffix_upper}"
             target_desc = f"CSV: {csv_target_file}"
             s_rows, s_min, s_max, s_nulls = query_oracle(f"BENCHMARK_SOURCE_{suffix_upper}")
-            t_rows, t_min, t_max, t_nulls = query_file(csv_target_file)
+            t_rows, t_min, t_max, t_nulls = query_file(tool=tool, file_path=csv_target_file)
             
         else:
             print(f"Unknown benchmark ID: {bench_id}")

@@ -6,12 +6,21 @@
 # Loads data into PostgreSQL, SQL Server and Oracle
 # 
 # IMPORTANT: Everything runs inside containers, nothing on the host
+# Supports Docker and Podman runtimes.
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config/docker-compose-benchmark.yml"
 ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LIB_DIR="$REPO_ROOT/lib"
+
+# Source le module de détection du runtime container (docker / podman)
+source "$LIB_DIR/container-runtime.sh"
+
+# Initialiser le runtime
+init_container_runtime || exit 1
 
 # Default values
 BENCHMARK_ROWS=2000000
@@ -74,12 +83,11 @@ mkdir -p "$ARTIFACTS_DIR"/{dtpipe,meltano,sling}
 # The actual containers will use their own copies via environment variables
 # =============================================================================
 
-# Function to docker exec and run commands in benchmark-dtpipe container
+# Run commands in benchmark-dtpipe container using the abstracted runtime
 # Args: command...
 docker_exec_dtpipe() {
-      (cd "$SCRIPT_DIR/config" && docker compose -f docker-compose-benchmark.yml \
-        exec benchmark-dtpipe bash -c 'export PATH="${PATH}:/root/.dotnet/tools"; '"$*"
-)
+    COMPOSE_PROJECT_DIR="$SCRIPT_DIR/config"
+     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml exec benchmark-dtpipe bash -c 'export PATH="${PATH}:/root/.dotnet/tools"; '"$*"
 }
 
 # =============================================================================

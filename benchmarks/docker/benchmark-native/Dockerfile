@@ -55,4 +55,4 @@ RUN echo $ORACLE_HOME > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 # Workdir mapping target
 WORKDIR /bench
 
-CMD ["bash", "-c", "echo 'Native tools container ready.'; while true; do sleep 3600; done"]
+CMD ["bash", "-c", "while true; do sleep 3600; done"]

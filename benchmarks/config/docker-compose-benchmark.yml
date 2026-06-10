@@ -1,15 +1,11 @@
 services:
    benchmark-dtpipe:
-    image: mcr.microsoft.com/dotnet/sdk:latest
+    build:
+      context: ..
+      dockerfile: docker/benchmark-dtpipe/Dockerfile
     container_name: benchmark-dtpipe
     stdin_open: true
     tty: true
-    command: >
-      bash -c '
-        dotnet tool install -g dtpipe 2>/dev/null || true;
-        export PATH="${PATH}:/root/.dotnet/tools";
-        echo "dtpipe installé et prêt.";
-        while true; do sleep 3600; done'
     volumes:
        - ../artifacts:/bench/artifacts
        - ../scripts:/bench/scripts
@@ -17,16 +13,12 @@ services:
        - benchmark-net
 
    benchmark-pandas:
-    image: python:3.12-slim
+    build:
+      context: ..
+      dockerfile: docker/benchmark-pandas/Dockerfile
     container_name: benchmark-pandas
     stdin_open: true
     tty: true
-    command: >
-      bash -c '
-        apt-get update && apt-get install -y libpq-dev gcc unixodbc-dev time && rm -rf /var/lib/apt/lists/*;
-        pip install --break-system-packages pyarrow pandas psycopg2-binary pyodbc oracledb sqlalchemy pymssql 2>/dev/null || true;
-        echo "pandas installé et prêt.";
-        while true; do sleep 3600; done'
     volumes:
        - ../artifacts:/bench/artifacts
        - ../scripts:/bench/scripts
@@ -34,16 +26,12 @@ services:
        - benchmark-net
 
    benchmark-meltano:
-    image: python:3.12-slim
+    build:
+      context: ..
+      dockerfile: docker/benchmark-meltano/Dockerfile
     container_name: benchmark-meltano
     stdin_open: true
     tty: true
-    command: >
-      bash -c '
-        apt-get update && apt-get install -y libpq-dev gcc unixodbc-dev git time && rm -rf /var/lib/apt/lists/*;
-        pip install --break-system-packages meltano 2>/dev/null || true;
-        echo "meltano installé et prêt.";
-        while true; do sleep 3600; done'
     volumes:
        - ../artifacts:/bench/artifacts
        - ../scripts:/bench/scripts
@@ -51,16 +39,12 @@ services:
        - benchmark-net
 
    benchmark-sling:
-    image: python:3.12-slim
+    build:
+      context: ..
+      dockerfile: docker/benchmark-sling/Dockerfile
     container_name: benchmark-sling
     stdin_open: true
     tty: true
-    command: >
-      bash -c '
-        apt-get update && apt-get install -y libpq-dev gcc unixodbc-dev time && rm -rf /var/lib/apt/lists/*;
-        pip install --break-system-packages sling pyarrow pandas duckdb psycopg2-binary pyodbc oracledb 2>/dev/null || true;
-        echo "sling installé et prêt.";
-        while true; do sleep 3600; done'
     volumes:
        - ../artifacts:/bench/artifacts
        - ../scripts:/bench/scripts
@@ -81,16 +65,12 @@ services:
        - benchmark-net
 
    benchmark-ingestr:
-    image: python:3.12-slim
+    build:
+      context: ..
+      dockerfile: docker/benchmark-ingestr/Dockerfile
     container_name: benchmark-ingestr
     stdin_open: true
     tty: true
-    command: >
-      bash -c '
-        apt-get update && apt-get install -y time && rm -rf /var/lib/apt/lists/*;
-        pip install --break-system-packages ingestr 2>/dev/null || true;
-        echo "ingestr installé et prêt.";
-        while true; do sleep 3600; done'
     volumes:
        - ../artifacts:/bench/artifacts
        - ../scripts:/bench/scripts

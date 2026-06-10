@@ -9,6 +9,13 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
 CONFIG_DIR="$SCRIPT_DIR/config"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LIB_DIR="$REPO_ROOT/lib"
+
+# Source le module de détection du runtime container (docker / podman)
+source "$LIB_DIR/container-runtime.sh"
+init_container_runtime || exit 1
+source "$LIB_DIR/mem-watcher.sh"
 
 # Default values
 BENCHMARK_ROWS=2000000
@@ -131,19 +138,23 @@ SCRIPT_FOOTER
 
     chmod +x "$runner_script"
 
-       # Copy the script into the container
-    docker cp "$runner_script" benchmark-dtpipe:/tmp/bench_runner.sh || {
+        # Copy the script into the container
+    container_cp "$runner_script" benchmark-dtpipe:/tmp/bench_runner.sh || {
         echo -e " ${RED}FAILED (script copy impossible)${NC}"
         return
      }
 
     local run_times=()
+    local run_mem_peaks=()
     for i in $(seq 1 "$BENCHMARK_REPETITIONS"); do
         echo -n "  Run $i/$BENCHMARK_REPETITIONS..."
 
-           # Execute the runner script inside the container
+        mem_watcher_start benchmark-dtpipe
+            # Execute the runner script inside the container
         local output
-        output=$(docker exec benchmark-dtpipe bash /tmp/bench_runner.sh 2>&1) || true
+        output=$(container_exec benchmark-dtpipe bash /tmp/bench_runner.sh 2>&1) || true
+        local peak_mem
+        peak_mem=$(mem_watcher_stop)
 
            # Parse result
         local status_line
@@ -152,8 +163,9 @@ SCRIPT_FOOTER
         if echo "$status_line" | grep -q "^OK:"; then
             local elapsed_ms
             elapsed_ms=$(echo "$status_line" | cut -d: -f2)
-            echo -e " ${GREEN}OK (${elapsed_ms} ms)${NC}"
+            echo -e " ${GREEN}OK (${elapsed_ms} ms, +${peak_mem} MiB)${NC}"
             run_times+=("$elapsed_ms")
+            run_mem_peaks+=("$peak_mem")
         else
             local exit_code elapsed_ms err_msg
             exit_code=$(echo "$status_line" | cut -d: -f2 || echo "?")
@@ -182,10 +194,21 @@ SCRIPT_FOOTER
         avg=$((sum / count))
     fi
 
-    echo -e "   Average: ${avg} ms ($count runs)"
+    local mem_sum=0
+    local mem_count=0
+    for m in "${run_mem_peaks[@]+"${run_mem_peaks[@]}"}"; do
+        mem_sum=$((mem_sum + m))
+        mem_count=$((mem_count + 1))
+    done
+    local avg_mem=0
+    if [[ $mem_count -gt 0 ]]; then
+        avg_mem=$((mem_sum / mem_count))
+    fi
+
+    echo -e "   Average: ${avg} ms, peak memory delta: +${avg_mem} MiB ($count runs)"
 
        # Store result
-    echo "$bench_id|$description|$avg" >> "$RESULTS_CSV"
+    echo "$bench_id|$description|$avg|$avg_mem" >> "$RESULTS_CSV"
 
       # Verify target data matches source
     if [[ "$avg" -ne 0 ]]; then
@@ -342,12 +365,12 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
     echo "        \"benchmarks\": {"
 
     first=true
-    while IFS='|' read -r bid bdesc bavg; do
+    while IFS='|' read -r bid bdesc bavg bavg_mem; do
         if [[ "$first" != "true" ]]; then
             echo ","
         fi
         first=false
-        printf '            "%s": { "description": "%s", "avg_duration_ms": %s }' "$bid" "$bdesc" "$bavg"
+        printf '            "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "${bavg_mem:-0}"
     done < "$RESULTS_CSV"
 
     echo ""

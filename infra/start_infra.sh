@@ -1,11 +1,17 @@
-#!/bin/bash
-# Start Docker infrastructure for integration tests
+#!/usr/bin/env bash
+# Start container infrastructure for integration tests
 # This script checks if containers are already running and healthy before starting them.
+# Supports Docker and Podman runtimes.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LIB_DIR="$REPO_ROOT/lib"
+
+# Source le module de détection du runtime container (docker / podman)
+source "$LIB_DIR/container-runtime.sh"
 
 # Colors
 GREEN='\033[0;32m'
@@ -19,47 +25,33 @@ if [ ! -f "$COMPOSE_FILE" ]; then
     exit 1
 fi
 
-# Check if Docker is available
-if ! command -v docker &> /dev/null; then
-    echo -e "${RED}Error: Docker is not installed${NC}"
-    exit 1
-fi
+# Initialize container runtime (detects docker or podman)
+init_container_runtime || exit 1
 
-if ! docker info &> /dev/null; then
-    echo -e "${RED}Error: Docker is not running or permission denied${NC}"
-    exit 1
-fi
-
-# Determine the correct docker compose command
-if command -v docker-compose &> /dev/null; then
-    COMPOSE_CMD="docker-compose"
-elif docker compose version &> /dev/null 2>&1; then
-    COMPOSE_CMD="docker compose"
-else
-    echo -e "${RED}Error: Neither docker-compose nor docker compose is available${NC}"
-    exit 1
-fi
+echo -e "${GREEN}Using container runtime: $CONTAINER_CMD${NC}"
 
 # Function to check if a container is running and healthy
 is_container_healthy() {
     local container_name=$1
     
-    # Check if container exists and is running
-    local state=$(docker inspect --format='{{.State.Status}}' "$container_name" 2>/dev/null || echo "not-found")
+     # Check if container exists and is running
+    local state
+    state=$(container_inspect --format='{{.State.Status}}' "$container_name" 2>/dev/null || echo "not-found")
     
     if [ "$state" != "running" ]; then
         return 1
     fi
     
-    # Check health status (if healthcheck is defined)
-    local health_status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_name" 2>/dev/null || echo "none")
+     # Check health status (if healthcheck is defined)
+    local health_status
+    health_status=$(container_inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_name" 2>/dev/null || echo "none")
     
     if [ "$health_status" = "healthy" ]; then
         return 0
     fi
 
     if [ "$health_status" = "none" ]; then
-        # If no healthcheck is defined, we rely on the container being 'running'
+         # If no healthcheck is defined, we rely on the container being 'running'
         return 0
     fi
     
@@ -70,28 +62,28 @@ is_container_healthy() {
 is_db_ready() {
     local container=$1
     case "$container" in
-        "dtpipe-integ-postgres")
-            docker exec "$container" pg_isready -U postgres >/dev/null 2>&1
+         "dtpipe-integ-postgres")
+            container_exec "$container" pg_isready -U postgres >/dev/null 2>&1
             return $?
-            ;;
-        "dtpipe-integ-mssql")
-            # Using sqlcmd inside the tools sidecar (shares networking via docker-compose)
-            docker exec "dtpipe-integ-mssql-tools" /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password123!' -Q "SELECT 1" >/dev/null 2>&1
+             ;;
+         "dtpipe-integ-mssql")
+             # Using sqlcmd inside the tools sidecar (shares networking via container-compose)
+            container_exec "dtpipe-integ-mssql-tools" /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password123!' -Q "SELECT 1" >/dev/null 2>&1
             return $?
-            ;;
-        "dtpipe-integ-oracle")
-            # Oracle free has a healthcheck script or we can use sqlplus
-            if docker exec "$container" bash -c "ls /usr/local/bin/healthcheck.sh" >/dev/null 2>&1; then
-                docker exec "$container" /usr/local/bin/healthcheck.sh >/dev/null 2>&1
+             ;;
+         "dtpipe-integ-oracle")
+             # Oracle free has a healthcheck script or we can use sqlplus
+            if container_exec "$container" bash -c "ls /usr/local/bin/healthcheck.sh" >/dev/null 2>&1; then
+                container_exec "$container" /usr/local/bin/healthcheck.sh >/dev/null 2>&1
                 return $?
             else
-                docker exec "$container" sqlplus -L -S / as sysdba <<< "SELECT 1 FROM DUAL;" >/dev/null 2>&1
+                container_exec "$container" sqlplus -L -S / as sysdba <<< "SELECT 1 FROM DUAL;" >/dev/null 2>&1
                 return $?
             fi
-            ;;
-        *)
+             ;;
+         *)
             return 0 # Default to success for others
-            ;;
+             ;;
     esac
 }
 
@@ -118,8 +110,9 @@ if check_all_ready; then
 fi
 
 # Start containers
-echo -e "${YELLOW}Starting Docker infrastructure...${NC}"
-$COMPOSE_CMD -f "$COMPOSE_FILE" up -d
+echo -e "${YELLOW}Starting container infrastructure...${NC}"
+COMPOSE_PROJECT_DIR="$SCRIPT_DIR"
+container_compose -f "$(basename "$COMPOSE_FILE")" up -d
 
 # Wait for containers to be healthy
 echo -e "${YELLOW}Waiting for containers to be healthy and databases to be ready...${NC}"
@@ -138,5 +131,9 @@ while [ $elapsed -lt $max_wait ]; do
 done
 
 echo -e "\n${RED}Error: Infrastructure failed to become healthy within ${max_wait}s${NC}"
-docker ps
+echo -e "${RED}Container status:${NC}"
+for container in "${CONTAINERS[@]}"; do
+    echo -n "  $container: "
+    container_inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "not found"
+done
 exit 1

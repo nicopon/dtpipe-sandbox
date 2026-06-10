@@ -73,17 +73,18 @@ read_tool_results() {
     fi
     
         # Parse JSON and populate BENCH_RESULTS
-     while IFS='|' read -r key value; do
+     while IFS='|' read -r key value mem; do
          eval "${tool}_${key}=\"\$value\""
+         eval "${tool}_mem_${key}=\"\$mem\""
       done < <(python3 -c "
 import json
 with open('$json_file') as f:
     data = json.load(f)
 benchmarks = data.get('benchmarks', {})
 for bid, bdata in benchmarks.items():
-    desc = bdata.get('description', '').replace(':', '_').replace('(', '').replace(')', '')
     avg = bdata.get('avg_duration_ms', 0)
-    print(f'{bid}|{avg}')
+    mem = bdata.get('avg_peak_mem_mb', 0)
+    print(f'{bid}|{avg}|{mem}')
 " 2>/dev/null || echo "")
 }
 
@@ -131,32 +132,48 @@ BENCHMARK_DESCRIPTIONS=(
     echo ""
     echo "---"
     echo ""
-    echo "## Comparative Table (average time in milliseconds)"
+    echo "## Comparative Table — Duration (avg ms)"
     echo ""
     echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
     echo "|:---|:---:|:---:|:---:|:---:|:---:|:---:|"
-    
+
          # Calculate and display results for each benchmark
       for idx in "${!BENCHMARK_IDS[@]}"; do
           bid="${BENCHMARK_IDS[$idx]}"
           bdesc="${BENCHMARK_DESCRIPTIONS[$idx]}"
-          
-          dtpipe_ms=""
-          pandas_ms=""
-          meltano_ms=""
-          sling_ms=""
-          ingestr_ms=""
-          native_ms=""
-          
-               # Get results from BENCH_RESULTS (empty if not available)
+
           eval "dtpipe_ms=\${dtpipe_${bid}:-N/A}"
           eval "pandas_ms=\${pandas_${bid}:-N/A}"
           eval "meltano_ms=\${meltano_${bid}:-N/A}"
           eval "sling_ms=\${sling_${bid}:-N/A}"
           eval "ingestr_ms=\${ingestr_${bid}:-N/A}"
           eval "native_ms=\${native_${bid}:-N/A}"
-              
+
           echo "| $bdesc | $dtpipe_ms | $pandas_ms | $meltano_ms | $sling_ms | $ingestr_ms | $native_ms |"
+      done
+
+    echo ""
+    echo "## Comparative Table — Peak Memory Delta (avg MiB)"
+    echo ""
+    echo "> Peak RSS increase measured from container baseline during transfer."
+    echo "> Values are meaningful only for transfers that take at least a few seconds;"
+    echo "> sub-second runs may report 0 MiB due to the ~1 s sampling interval."
+    echo ""
+    echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
+    echo "|:---|:---:|:---:|:---:|:---:|:---:|:---:|"
+
+      for idx in "${!BENCHMARK_IDS[@]}"; do
+          bid="${BENCHMARK_IDS[$idx]}"
+          bdesc="${BENCHMARK_DESCRIPTIONS[$idx]}"
+
+          eval "dtpipe_mem=\${dtpipe_mem_${bid}:-N/A}"
+          eval "pandas_mem=\${pandas_mem_${bid}:-N/A}"
+          eval "meltano_mem=\${meltano_mem_${bid}:-N/A}"
+          eval "sling_mem=\${sling_mem_${bid}:-N/A}"
+          eval "ingestr_mem=\${ingestr_mem_${bid}:-N/A}"
+          eval "native_mem=\${native_mem_${bid}:-N/A}"
+
+          echo "| $bdesc | $dtpipe_mem | $pandas_mem | $meltano_mem | $sling_mem | $ingestr_mem | $native_mem |"
       done
       
     echo ""
@@ -349,6 +366,7 @@ for bid, desc in zip(benchmark_ids, descriptions):
             if bid in benchmarks:
                 report['benchmarks'][bid]['tools'][tool] = {
                     'avg_duration_ms': benchmarks[bid].get('avg_duration_ms', 0),
+                    'avg_peak_mem_mb': benchmarks[bid].get('avg_peak_mem_mb', 0),
                     'description': benchmarks[bid].get('description', desc)
                 }
         except FileNotFoundError:

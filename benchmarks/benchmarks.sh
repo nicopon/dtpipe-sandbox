@@ -23,7 +23,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/config"
 ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
-INFRA_DIR="$REPO_ROOT/tests/infra"
+INFRA_DIR="$REPO_ROOT/infra"
+LIB_DIR="$REPO_ROOT/lib"
+
+# Source le module de détection du runtime container (docker / podman)
+source "$LIB_DIR/container-runtime.sh"
 
 # =============================================================================
 # Defaults
@@ -93,8 +97,8 @@ Options:
                           Names: dtpipe pandas meltano sling ingestr native
   --skip-infra            Do not start DB infrastructure
                           (use when containers are already running)
-  --infra-compose FILE    Path to the infrastructure docker-compose file
-                          (default: tests/infra/docker-compose.yml)
+   --infra-compose FILE    Path to the infrastructure docker-compose file
+                           (default: infra/docker-compose.yml)
   --clean-artifacts       Remove previous tool output files before running
   -h, --help              Show this help
 
@@ -158,7 +162,8 @@ echo ""
 # (ensures a predictable network name: dtpipe-benchmark_benchmark-net)
 # =============================================================================
 DOCKER_COMPOSE_CMD() {
-    (cd "$CONFIG_DIR" && docker compose -p "$COMPOSE_PROJECT" -f docker-compose-benchmark.yml "$@")
+    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
+     container_compose -p "$COMPOSE_PROJECT" -f docker-compose-benchmark.yml "$@"
 }
 
 # =============================================================================
@@ -180,13 +185,13 @@ else
     _infra_all_running() {
         for db in dtpipe-integ-postgres dtpipe-integ-mssql dtpipe-integ-oracle; do
             local state
-            state=$(docker inspect -f '{{.State.Running}}' "$db" 2>/dev/null || echo "false")
+            state=$(container_inspect -f '{{.State.Running}}' "$db" 2>/dev/null || echo "false")
             if [[ "$state" != "true" ]]; then
                 return 1
             fi
         done
         return 0
-    }
+     }
 
     if _infra_all_running; then
         echo -e "${GREEN}✓ DB containers already running${NC}"
@@ -197,9 +202,9 @@ else
             echo -e "${YELLOW}Starting infrastructure via start_infra.sh ...${NC}"
             bash "$INFRA_START_SH"
         else
-            echo -e "${YELLOW}Starting infrastructure via docker compose ...${NC}"
-            (cd "$(dirname "$INFRA_COMPOSE_FILE")" && \
-                docker compose -f "$(basename "$INFRA_COMPOSE_FILE")" up -d)
+            echo -e "${YELLOW}Starting infrastructure via container compose ...${NC}"
+             COMPOSE_PROJECT_DIR="$(dirname "$INFRA_COMPOSE_FILE")"
+             container_compose -f "$(basename "$INFRA_COMPOSE_FILE")" up -d
 
             # Wait for containers to become running (up to 120s)
             echo -n "Waiting for DB containers"
@@ -247,30 +252,28 @@ echo -e "${CYAN}═════════════════════�
 echo -e "${CYAN}  Step 0b: Benchmark containers${NC}"
 echo -e "${CYAN}══════════════════════════════════════${NC}"
 
+echo -e "${YELLOW}Cleaning up leftover benchmark containers...${NC}"
+DOCKER_COMPOSE_CMD down --remove-orphans 2>/dev/null || true
+for _c in benchmark-dtpipe benchmark-pandas benchmark-meltano benchmark-sling benchmark-ingestr benchmark-native; do
+    "$CONTAINER_CMD" rm -f "$_c" 2>/dev/null || true
+done
+
 DOCKER_COMPOSE_CMD build || {
     echo -e "${RED}Error while building containers.${NC}"
     exit 1
 }
 
-for container in benchmark-dtpipe benchmark-pandas benchmark-meltano benchmark-sling benchmark-ingestr benchmark-native; do
-    if ! DOCKER_COMPOSE_CMD ps "$container" 2>/dev/null | grep -q "running\|Running"; then
-        echo "Starting $container..."
-        DOCKER_COMPOSE_CMD up -d "$container" || \
-            echo -e "${YELLOW}Warning: Unable to start $container${NC}"
-    fi
-done
+DOCKER_COMPOSE_CMD up -d || {
+    echo -e "${RED}Error while starting benchmark containers.${NC}"
+    exit 1
+}
 
 # Connect DB containers to the benchmark network
 echo -e "${YELLOW}Connecting DB containers to benchmark network (${BENCHMARK_NETWORK})...${NC}"
 for db in dtpipe-integ-postgres dtpipe-integ-oracle dtpipe-integ-mssql; do
-    docker network connect "$BENCHMARK_NETWORK" "$db" 2>/dev/null || true
+    container_network_connect "$BENCHMARK_NETWORK" "$db" 2>/dev/null || true
 done
 
-# Install/update the local dtpipe CLI package in its container
-echo -e "${YELLOW}Installing local dtpipe package...${NC}"
-docker exec benchmark-dtpipe bash -c \
-    "dotnet tool uninstall -g dtpipe 2>/dev/null || true; \
-     dotnet tool install -g dtpipe --add-source /bench/artifacts"
 
 echo ""
 echo -e "${GREEN}Container status:${NC}"

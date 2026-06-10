@@ -8,6 +8,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
 CONFIG_DIR="$SCRIPT_DIR/config"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LIB_DIR="$REPO_ROOT/lib"
+
+# Source le module de détection du runtime container (docker / podman)
+source "$LIB_DIR/container-runtime.sh"
+init_container_runtime || exit 1
+source "$LIB_DIR/mem-watcher.sh"
 
 # Default values
 BENCHMARK_ROWS=2000000
@@ -62,14 +69,16 @@ else
 fi
 SUFFIX_UPPER=$(echo "$SUFFIX" | tr '[:lower:]' '[:upper:]')
 
-# Docker compose helper (runs from config directory)
-docker_compose() {
-     (cd "$CONFIG_DIR" && docker compose -f docker-compose-benchmark.yml "$@")
+# Container compose helper (runs from config directory)
+container_compose_helper() {
+    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
+     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml "$@"
 }
 
-# docker exec helper for benchmark-ingestr container
+# Container exec helper for benchmark-ingestr container
 exec_ingestr_container() {
-    docker_compose exec benchmark-ingestr bash -c "$1"
+    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
+     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml exec benchmark-ingestr bash -c "$1"
 }
 
 # Ensure artifacts directory exists
@@ -119,32 +128,34 @@ run_pipeline() {
     local ingestr_cmd="ingestr ingest --source-uri '$src_uri' --source-table '$src_table' --dest-uri '$dest_uri' --dest-table '$dest_table' --yes --progress log --full-refresh --schema-naming direct $extra_flags"
 
     local run_times=()
+    local run_mem_peaks=()
     for i in $(seq 1 "$BENCHMARK_REPETITIONS"); do
         echo -n "  Run $i/$BENCHMARK_REPETITIONS..."
-        
+
+        mem_watcher_start benchmark-ingestr
         # Execute ingestr inside the container and capture timing
         if exec_ingestr_container "/usr/bin/time -f '%e' -o /tmp/ingestr_timing_${bench_id}_$i.txt $ingestr_cmd > /tmp/ingestr_output_${bench_id}_$i.txt 2>&1"; then
+            local peak_mem
+            peak_mem=$(mem_watcher_stop)
             # Extract timing from the container's output file
             local wall_time
             wall_time=$(exec_ingestr_container "cat /tmp/ingestr_timing_${bench_id}_$i.txt" || echo "")
-            
+
             if [[ -n "$wall_time" ]]; then
-                # Convert seconds.milliseconds to milliseconds (integer)
                 local ms
                 ms=$(echo "$wall_time" | awk '{printf "%d", $1 * 1000}')
-                
-                echo -e " ${GREEN}OK (${ms} ms)${NC}"
+                echo -e " ${GREEN}OK (${ms} ms, +${peak_mem} MiB)${NC}"
                 run_times+=("$ms")
+                run_mem_peaks+=("$peak_mem")
             else
                 echo -e " ${GREEN}OK (measurement not available)${NC}"
                 run_times+=("0")
             fi
-            
-            # Clean up timing file in container
+
             exec_ingestr_container "rm -f /tmp/ingestr_timing_${bench_id}_$i.txt /tmp/ingestr_output_${bench_id}_$i.txt" >/dev/null 2>&1 || true
         else
+            mem_watcher_stop > /dev/null
             echo -e " ${RED}FAILED${NC}"
-            # Print output from error
             exec_ingestr_container "cat /tmp/ingestr_output_${bench_id}_$i.txt" || true
             run_times+=("ERROR:0")
             exec_ingestr_container "rm -f /tmp/ingestr_timing_${bench_id}_$i.txt /tmp/ingestr_output_${bench_id}_$i.txt" >/dev/null 2>&1 || true
@@ -166,10 +177,21 @@ run_pipeline() {
         avg=$((sum / count))
     fi
 
-    echo -e "   Average: ${avg} ms ($count runs)"
+    local mem_sum=0
+    local mem_count=0
+    for m in "${run_mem_peaks[@]+"${run_mem_peaks[@]}"}"; do
+        mem_sum=$((mem_sum + m))
+        mem_count=$((mem_count + 1))
+    done
+    local avg_mem=0
+    if [[ $mem_count -gt 0 ]]; then
+        avg_mem=$((mem_sum / mem_count))
+    fi
+
+    echo -e "   Average: ${avg} ms, peak memory delta: +${avg_mem} MiB ($count runs)"
 
     # Store result
-    echo "$bench_id|$description|$avg" >> "$RESULTS_CSV"
+    echo "$bench_id|$description|$avg|$avg_mem" >> "$RESULTS_CSV"
 
     # Verify target data matches source
     if [[ "$avg" -ne 0 ]]; then
@@ -267,15 +289,15 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
     echo '    "benchmarks": {'
 
     first=true
-    while IFS='|' read -r bid bdesc bavg; do
+    while IFS='|' read -r bid bdesc bavg bavg_mem; do
         if [[ "$first" != true ]]; then
             echo ","
         fi
         first=false
         if [[ "$bavg" =~ ^[0-9]+$ ]]; then
-            printf '      "%s": { "description": "%s", "avg_duration_ms": %s }' "$bid" "$bdesc" "$bavg"
+            printf '      "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "${bavg_mem:-0}"
         else
-            printf '      "%s": { "description": "%s", "avg_duration_ms": "%s" }' "$bid" "$bdesc" "$bavg"
+            printf '      "%s": { "description": "%s", "avg_duration_ms": "%s", "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "${bavg_mem:-0}"
         fi
     done < "$RESULTS_CSV"
 

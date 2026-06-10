@@ -20,27 +20,27 @@ Competitive performance benchmark comparing **6 data-transfer tools** across
 
 ## Architecture
 
-All benchmark executions happen **inside isolated Docker containers**.  
+All benchmark executions happen **inside isolated Docker containers**.
 Nothing is installed permanently on the host machine.
 
 ```
 Host (Linux / macOS / Windows)
 │
-├─ benchmarks.sh  ──────────────────────────────────────────┐
-│   or benchmarks.ps1                                        │
-│                                                            ▼  Docker network: dtpipe-benchmark_benchmark-net
-│                                               ┌────────────────────────────────────┐
-│   Infrastructure (tests/infra/)               │  Benchmark containers              │
-│   ┌────────────────────────────┐             │                                    │
-│   │ dtpipe-integ-postgres      │◄────────────│  benchmark-dtpipe  (.NET SDK)      │
-│   │ dtpipe-integ-mssql         │◄────────────│  benchmark-pandas  (python:3.12)   │
-│   │ dtpipe-integ-oracle        │◄────────────│  benchmark-meltano (python:3.12)   │
-│   └────────────────────────────┘             │  benchmark-sling   (python:3.12)   │
-│                                               │  benchmark-ingestr (python:3.12)   │
-│                                               │  benchmark-native  (ubuntu + OCI)  │
+├─ benchmarks.sh   ──────────────────────────────────────────┐
+│   or benchmarks.ps1                                          │
+│                                                              ▼  Docker network: dtpipe-benchmark_benchmark-net
+│                                              ┌────────────────────────────────────┐
+│   Infrastructure (infra/)                   │  Benchmark containers               │
+│    ┌────────────────────────────┐           │                                     │
+│    │ dtpipe-integ-postgres        │◄─────────│  benchmark-dtpipe   (.NET SDK)      │
+│    │ dtpipe-integ-mssql           │◄───────── │  benchmark-pandas   (python:3.12)   │
+│    │ dtpipe-integ-oracle          │◄───────── │  benchmark-meltano (python:3.12)    │
+│    └────────────────────────────┘            │  benchmark-sling    (python:3.12)    │
+│                                               │  benchmark-ingestr (python:3.12)    │
+│                                               │  benchmark-native   (ubuntu + OCI)   │
 │                                               └────────────────────────────────────┘
 │
-└─ artifacts/                  ← result JSON files, output datasets, reports
+└─ artifacts/                   ← result JSON files, output datasets, reports
 ```
 
 ### Multi-architecture support
@@ -58,39 +58,39 @@ correct Oracle binary at build time based on `uname -m`.
 
 ```
 benchmarks/
-├── benchmarks.sh                      # Main orchestrator (bash — self-contained)
-├── benchmarks.ps1                     # PowerShell entry point (Windows)
-├── 01-init-data.sh                    # Source dataset generation & DB loading
-├── 03-dtpipe.sh                       # dtpipe benchmark runner
-├── 03-pandas.sh                       # pandas + SQLAlchemy benchmark runner
-├── 03-meltano.sh                      # Meltano (Singer) benchmark runner
-├── 03-sling.sh                        # Sling benchmark runner
-├── 03-ingestr.sh                      # ingestr benchmark runner
-├── 03-native.sh                       # Native tools benchmark runner
-├── 04-report.sh                       # Comparative report generator
-├── README.md                          # This file
-├── artifacts/                         # Intermediate results (git-ignored)
-│   ├── dtpipe/       dtpipe_report.json
-│   ├── pandas/       pandas_report.json
-│   ├── meltano/      meltano_report.json
-│   ├── sling/        sling_report.json
-│   ├── ingestr/      ingestr_report.json
-│   ├── native/       native_report.json
-│   ├── reports/
-│   │   ├── benchmark_report.md
-│   │   └── benchmark_report.json
-│   ├── source_data_<N>.parquet       (generated)
-│   └── source_data_<N>.csv           (generated)
+├── benchmarks.sh                       # Main orchestrator (bash — self-contained)
+├── benchmarks.ps1                      # PowerShell entry point (Windows)
+├── 01-init-data.sh                     # Source dataset generation & DB loading
+├── 03-dtpipe.sh                        # dtpipe benchmark runner
+├── 03-pandas.sh                        # pandas + SQLAlchemy benchmark runner
+├── 03-meltano.sh                       # Meltano (Singer) benchmark runner
+├── 03-sling.sh                         # Sling benchmark runner
+├── 03-ingestr.sh                       # ingestr benchmark runner
+├── 03-native.sh                        # Native tools benchmark runner
+├── 04-report.sh                        # Comparative report generator
+├── README.md                           # This file
+├── artifacts/                          # Intermediate results (git-ignored)
+│    ├── dtpipe/       dtpipe_report.json
+│    ├── pandas/       pandas_report.json
+│    ├── meltano/      meltano_report.json
+│    ├── sling/        sling_report.json
+│    ├── ingestr/      ingestr_report.json
+│    ├── native/       native_report.json
+│    ├── reports/
+│    │    ├── benchmark_report.md
+│    │    └── benchmark_report.json
+│    ├── source_data_<N>.parquet        (generated)
+│    └── source_data_<N>.csv            (generated)
 ├── config/
-│   ├── benchmark.env                  # DB connection defaults
-│   └── docker-compose-benchmark.yml  # Benchmark container definitions
+│    ├── benchmark.env                   # DB connection defaults
+│    └── docker-compose-benchmark.yml   # Benchmark container definitions
 ├── docker/
-│   └── benchmark-native/
-│       └── Dockerfile                 # Ubuntu + Oracle Instant Client + DB clients
+│    └── benchmark-native/
+│        └── Dockerfile                  # Ubuntu + Oracle Instant Client + DB clients
 └── scripts/
-    ├── benchmarks/
-    │   └── _pandas_bench.py           # pandas/SQLAlchemy benchmark logic
-    └── verify_data.py                 # Post-run data integrity checker
+     ├── benchmarks/
+     │    └── _pandas_bench.py            # pandas/SQLAlchemy benchmark logic
+     └── verify_data.py                  # Post-run data integrity checker
 ```
 
 ---
@@ -114,7 +114,7 @@ cd benchmarks/
 ```
 
 The script automatically:
-1. Starts the DB infrastructure (`tests/infra/`)
+1. Starts the DB infrastructure (`infra/`)
 2. Builds & starts benchmark containers
 3. Initializes the source dataset
 4. Runs all 6 tools across all 12 pipelines
@@ -161,7 +161,7 @@ PowerShell: same options as PascalCase parameters (`-Rows`, `-Repetitions`, etc.
 ./benchmarks.sh --skip-infra --clean-artifacts
 
 # Custom infra compose (e.g., external dtpipe repo):
-./benchmarks.sh --infra-compose /path/to/dtpipe/tests/infra/docker-compose.yml
+./benchmarks.sh --infra-compose /path/to/dtpipe/infra/docker-compose.yml
 ```
 
 ```powershell
@@ -231,7 +231,7 @@ The report can also be regenerated independently (e.g. after partial runs):
 
 ## Infrastructure Details
 
-The DB containers are defined in `tests/infra/docker-compose.yml`:
+The DB containers are defined in `infra/docker-compose.yml`:
 
 | Container | Image | Port |
 |-----------|-------|------|
@@ -243,9 +243,9 @@ To manage them independently:
 
 ```bash
 # Start:
-cd tests/infra/ && ./start_infra.sh
+cd infra/ && ./start_infra.sh
 # Stop:
-cd tests/infra/ && ./stop_infra.sh
+cd infra/ && ./stop_infra.sh
 ```
 
 ---
@@ -256,5 +256,10 @@ cd tests/infra/ && ./stop_infra.sh
 2. **Timing**: wall-clock time measured via `/usr/bin/time -f '%e'` inside each container.
 3. **Averaging**: each pipeline is run N times; the mean of successful runs is reported.
 4. **Data integrity**: after each run `verify_data.py` checks row count + min/max/nulls.
-5. **Network**: benchmark containers join the DB network dynamically at runtime —  
+5. **Network**: benchmark containers join the DB network dynamically at runtime —
    no static network references in the infra compose file are required.
+6. **Memory**: peak RSS delta is sampled from the host via `docker stats` at ~1 s intervals,
+   relative to the container's baseline at the start of each run. Because of this sampling
+   rate, **memory figures are only meaningful for transfers that take at least a few seconds**.
+   Sub-second runs will typically report 0 MiB — this is a measurement artifact, not a
+   sign of zero memory usage.
