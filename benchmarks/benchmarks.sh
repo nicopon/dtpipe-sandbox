@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/config"
 ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
 INFRA_DIR="$REPO_ROOT/infra"
-LIB_DIR="$REPO_ROOT/lib"
+LIB_DIR="$SCRIPT_DIR/lib"
 
 # Source le module de détection du runtime container (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
@@ -34,7 +34,7 @@ source "$LIB_DIR/container-runtime.sh"
 # =============================================================================
 BENCHMARK_ROWS=250000
 BENCHMARK_REPETITIONS=3
-BENCHMARK_SCOPE="all"          # all | B01 … B12
+BENCHMARK_SCOPE="all"          # all | B01 … B15
 BENCHMARK_TOOL="all"           # all | dtpipe | pandas | meltano | sling | ingestr | native
 SKIP_INFRA=false               # --skip-infra  → skip DB infrastructure startup
 CLEAN_ARTIFACTS=false          # --clean-artifacts → wipe tool output files before running
@@ -58,24 +58,9 @@ else
     GREEN='' YELLOW='' RED='' BLUE='' CYAN='' NC=''
 fi
 
-# =============================================================================
-# Python detection (python3 on Linux/macOS, python on Windows)
-# =============================================================================
-PYTHON_CMD=""
-for _py in python3 python py; do
-    if command -v "$_py" &>/dev/null; then
-        PYTHON_CMD="$_py"
-        break
-    fi
-done
-
 format_number() {
-    # Format an integer with thousands separators, e.g. 250000 → 250,000
-    if [[ -n "$PYTHON_CMD" ]]; then
-        $PYTHON_CMD -c "print(f'{int($1):,}')" 2>/dev/null || echo "$1"
-    else
-        echo "$1"
-    fi
+     # Format an integer with thousands separators, e.g. 250000 → 250,000
+     printf '%s\n' "$1" | awk '{printf "%'\''d\n", $1}' 2>/dev/null || echo "$1"
 }
 
 # =============================================================================
@@ -206,9 +191,9 @@ else
              COMPOSE_PROJECT_DIR="$(dirname "$INFRA_COMPOSE_FILE")"
              container_compose -f "$(basename "$INFRA_COMPOSE_FILE")" up -d
 
-            # Wait for containers to become running (up to 120s)
+             # Wait for containers to become running (up to 120s)
             echo -n "Waiting for DB containers"
-            local _elapsed=0
+            _elapsed=0
             until _infra_all_running || [[ $_elapsed -ge 120 ]]; do
                 sleep 3; _elapsed=$((_elapsed + 3)); echo -n "."
             done
@@ -254,11 +239,39 @@ echo -e "${CYAN}═════════════════════�
 
 echo -e "${YELLOW}Cleaning up leftover benchmark containers...${NC}"
 DOCKER_COMPOSE_CMD down --remove-orphans 2>/dev/null || true
-for _c in benchmark-dtpipe benchmark-pandas benchmark-meltano benchmark-sling benchmark-ingestr benchmark-native; do
+for _c in benchmark-test; do
     "$CONTAINER_CMD" rm -f "$_c" 2>/dev/null || true
 done
 
-DOCKER_COMPOSE_CMD build || {
+# Resolve latest tool versions from GitHub releases
+echo -e "${YELLOW}Resolving latest tool versions from GitHub...${NC}"
+_resolve_tag() {
+    local repo="$1"
+    local url
+    url=$(curl -sIL -o /dev/null -w "%{url_effective}" "https://github.com/${repo}/releases/latest" 2>/dev/null | tr -d "\r\n")
+    if [[ "$url" =~ /tag/([^/]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    fi
+}
+
+DTPIPE_LATEST=$(_resolve_tag "nicopon/dtpipe" || echo "")
+SLING_LATEST=$(_resolve_tag "slingdata-io/sling-cli" || echo "")
+INGESTR_LATEST=$(_resolve_tag "bruin-data/ingestr" || echo "")
+
+# Fallback to default pinned versions if resolution failed (e.g. offline)
+DTPIPE_LATEST="${DTPIPE_LATEST:-v1.4.0}"
+SLING_LATEST="${SLING_LATEST:-v1.5.20}"
+INGESTR_LATEST="${INGESTR_LATEST:-v1.0.37}"
+
+echo "  dtpipe version:  $DTPIPE_LATEST"
+echo "  sling version:   $SLING_LATEST"
+echo "  ingestr version: $INGESTR_LATEST"
+echo ""
+
+DOCKER_COMPOSE_CMD build \
+    --build-arg DTPIPE_VERSION="$DTPIPE_LATEST" \
+    --build-arg SLING_VERSION="$SLING_LATEST" \
+    --build-arg INGESTR_VERSION="$INGESTR_LATEST" || {
     echo -e "${RED}Error while building containers.${NC}"
     exit 1
 }
@@ -287,7 +300,7 @@ echo -e "${CYAN}═════════════════════�
 echo -e "${CYAN}  Step 1: Source data initialization${NC}"
 echo -e "${CYAN}══════════════════════════════════════${NC}"
 
-INIT_SCRIPT="$SCRIPT_DIR/01-init-data.sh"
+INIT_SCRIPT="$SCRIPT_DIR/runners/01-init-data.sh"
 if [[ -f "$INIT_SCRIPT" ]]; then
     bash "$INIT_SCRIPT" --rows "$BENCHMARK_ROWS" || {
         echo -e "${RED}Error during data initialization.${NC}"
@@ -314,7 +327,7 @@ for tool in "${TOOLS[@]}"; do
     echo -e "${GREEN}  Tool: $tool${NC}"
     echo -e "${GREEN}────────────────────────────────────────────────${NC}"
 
-    BENCH_SCRIPT="$SCRIPT_DIR/03-${tool}.sh"
+    BENCH_SCRIPT="$SCRIPT_DIR/runners/03-${tool}.sh"
     if [[ -f "$BENCH_SCRIPT" ]]; then
         chmod +x "$BENCH_SCRIPT"
         bash "$BENCH_SCRIPT" \
@@ -335,7 +348,7 @@ echo -e "${CYAN}═════════════════════�
 echo -e "${CYAN}  Step 3: Generating report${NC}"
 echo -e "${CYAN}══════════════════════════════════════${NC}"
 
-REPORT_SCRIPT="$SCRIPT_DIR/04-report.sh"
+REPORT_SCRIPT="$SCRIPT_DIR/runners/04-report.sh"
 if [[ -f "$REPORT_SCRIPT" ]]; then
     chmod +x "$REPORT_SCRIPT"
     bash "$REPORT_SCRIPT" \

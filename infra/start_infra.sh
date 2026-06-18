@@ -3,7 +3,7 @@
 # This script checks if containers are already running and healthy before starting them.
 # Supports Docker and Podman runtimes.
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
@@ -59,31 +59,40 @@ is_container_healthy() {
 }
 
 # Advanced check: verify if the database is actually accepting connections/queries
+# NOTE: We capture output in a variable to prevent `set -e` from exiting the script
+#       when a command fails (containers may not be ready on first start).
+#       Also, `[[ -n "$result" ]] || true` prevents `set -e` from exiting when result is empty.
 is_db_ready() {
     local container=$1
+    local result=""
     case "$container" in
-         "dtpipe-integ-postgres")
-            container_exec "$container" pg_isready -U postgres >/dev/null 2>&1
-            return $?
-             ;;
-         "dtpipe-integ-mssql")
-             # Using sqlcmd inside the tools sidecar (shares networking via container-compose)
-            container_exec "dtpipe-integ-mssql-tools" /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password123!' -Q "SELECT 1" >/dev/null 2>&1
-            return $?
-             ;;
-         "dtpipe-integ-oracle")
-             # Oracle free has a healthcheck script or we can use sqlplus
-            if container_exec "$container" bash -c "ls /usr/local/bin/healthcheck.sh" >/dev/null 2>&1; then
-                container_exec "$container" /usr/local/bin/healthcheck.sh >/dev/null 2>&1
-                return $?
+           "dtpipe-integ-postgres")
+            result=$(container_exec "$container" pg_isready -U postgres >/dev/null 2>&1) || true
+             [[ -n "$result" ]] && return 0
+             return 1
+               ;;
+           "dtpipe-integ-mssql")
+               # Using sqlcmd inside the tools sidecar (shares networking via container-compose)
+            result=$(container_exec "dtpipe-integ-mssql-tools" /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password123!' -Q "SELECT 1" >/dev/null 2>&1) || true
+             [[ -n "$result" ]] && return 0
+             return 1
+               ;;
+           "dtpipe-integ-oracle")
+               # Oracle free has a healthcheck script or we can use sqlplus
+            result=$(container_exec "$container" bash -c "ls /usr/local/bin/healthcheck.sh" >/dev/null 2>&1) || true
+            if [[ -n "$result" ]]; then
+                result=$(container_exec "$container" /usr/local/bin/healthcheck.sh >/dev/null 2>&1) || true
+                 [[ -n "$result" ]] && return 0
+                 return 1
             else
-                container_exec "$container" sqlplus -L -S / as sysdba <<< "SELECT 1 FROM DUAL;" >/dev/null 2>&1
-                return $?
+                result=$(container_exec "$container" sqlplus -L -S / as sysdba <<< "SELECT 1 FROM DUAL;" >/dev/null 2>&1) || true
+                 [[ -n "$result" ]] && return 0
+                 return 1
             fi
-             ;;
-         *)
+               ;;
+           *)
             return 0 # Default to success for others
-             ;;
+               ;;
     esac
 }
 
@@ -115,9 +124,12 @@ COMPOSE_PROJECT_DIR="$SCRIPT_DIR"
 container_compose -f "$(basename "$COMPOSE_FILE")" up -d
 
 # Wait for containers to be healthy
+# Note: Oracle can take several minutes to fully initialize, so we use a
+#        longer timeout (300 s = 5 min) and print a warning if it exceeds 2 min.
 echo -e "${YELLOW}Waiting for containers to be healthy and databases to be ready...${NC}"
-max_wait=120
+max_wait=300
 elapsed=0
+warned=false
 
 while [ $elapsed -lt $max_wait ]; do
     if check_all_ready; then
@@ -125,15 +137,24 @@ while [ $elapsed -lt $max_wait ]; do
         exit 0
     fi
     
-    sleep 3
-    elapsed=$((elapsed + 3))
+    sleep 5
+    elapsed=$((elapsed + 5))
+    
+    # Print a warning after 2 minutes so the user knows something is happening
+    if [[ "$warned" == "false" ]] && [ $elapsed -ge 120 ]; then
+        echo -e "\n${YELLOW}⚠ Oracle may take several minutes to initialize (elapsed: ${elapsed}s)...${NC}"
+        warned=true
+    fi
     echo -n "."
 done
 
-echo -e "\n${RED}Error: Infrastructure failed to become healthy within ${max_wait}s${NC}"
+echo -e "\n${RED}Error: Infrastructure failed to become healthy within ${max_wait}s (${max_wait}/5 min)${NC}"
+echo -e "${YELLOW}This can happen on first run when images need to be pulled and databases${NC}"
+echo -e "${YELLOW}initialized. Try running the script again — on subsequent runs the DBs${NC}"
+echo -e "${YELLOW}should already be healthy and it will complete instantly.${NC}"
 echo -e "${RED}Container status:${NC}"
 for container in "${CONTAINERS[@]}"; do
-    echo -n "  $container: "
+    echo -n "   $container: "
     container_inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "not found"
 done
 exit 1

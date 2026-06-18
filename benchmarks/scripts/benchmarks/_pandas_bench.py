@@ -31,6 +31,17 @@ def main():
     mssql_conn = "mssql+pymssql://sa:Password123!@dtpipe-integ-mssql:1433/master"
     oracle_conn = "oracle+oracledb://testuser:password@dtpipe-integ-oracle:1521/?service_name=FREEPDB1"
 
+    # Intra-DB accounts (B13-B15)
+    pg_reader_conn = f"postgresql+psycopg2://{os.environ.get('DB_POSTGRES_READER_USER','bench_reader')}:{os.environ.get('DB_POSTGRES_READER_PASSWORD','password')}@{os.environ.get('DB_POSTGRES_HOST','dtpipe-integ-postgres')}:{os.environ.get('DB_POSTGRES_PORT','5432')}/{os.environ.get('DB_POSTGRES_DB','integration')}"
+    pg_writer_conn = f"postgresql+psycopg2://{os.environ.get('DB_POSTGRES_WRITER_USER','bench_writer')}:{os.environ.get('DB_POSTGRES_WRITER_PASSWORD','password')}@{os.environ.get('DB_POSTGRES_HOST','dtpipe-integ-postgres')}:{os.environ.get('DB_POSTGRES_PORT','5432')}/{os.environ.get('DB_POSTGRES_DB','integration')}"
+    pg_writer_schema = os.environ.get('DB_POSTGRES_WRITER_SCHEMA', 'bench_tgt')
+    mssql_reader_conn = f"mssql+pymssql://{os.environ.get('DB_MSSQL_READER_USER','bench_reader')}:{os.environ.get('DB_MSSQL_READER_PASSWORD','BenchReader1!')}@{os.environ.get('DB_MSSQL_HOST','dtpipe-integ-mssql')}:{os.environ.get('DB_MSSQL_PORT','1433')}/{os.environ.get('DB_MSSQL_DB','master')}"
+    mssql_writer_conn = f"mssql+pymssql://{os.environ.get('DB_MSSQL_WRITER_USER','bench_writer')}:{os.environ.get('DB_MSSQL_WRITER_PASSWORD','BenchWriter1!')}@{os.environ.get('DB_MSSQL_HOST','dtpipe-integ-mssql')}:{os.environ.get('DB_MSSQL_PORT','1433')}/{os.environ.get('DB_MSSQL_DB','master')}"
+    mssql_writer_schema = os.environ.get('DB_MSSQL_WRITER_SCHEMA', 'bench_tgt')
+    oracle_reader_conn = f"oracle+oracledb://{os.environ.get('DB_ORACLE_READER_USER','bench_reader')}:{os.environ.get('DB_ORACLE_READER_PASSWORD','password')}@{os.environ.get('DB_ORACLE_HOST','dtpipe-integ-oracle')}:{os.environ.get('DB_ORACLE_PORT','1521')}/?service_name={os.environ.get('DB_ORACLE_SERVICE','FREEPDB1')}"
+    oracle_writer_conn = f"oracle+oracledb://{os.environ.get('DB_ORACLE_WRITER_USER','bench_writer')}:{os.environ.get('DB_ORACLE_WRITER_PASSWORD','password')}@{os.environ.get('DB_ORACLE_HOST','dtpipe-integ-oracle')}:{os.environ.get('DB_ORACLE_PORT','1521')}/?service_name={os.environ.get('DB_ORACLE_SERVICE','FREEPDB1')}"
+    oracle_writer_user = os.environ.get('DB_ORACLE_WRITER_USER', 'bench_writer').upper()
+
     parquet_src = f"/bench/artifacts/source_data_{suffix}.parquet"
     csv_src = f"/bench/artifacts/source_data_{suffix}.csv"
 
@@ -116,6 +127,28 @@ def main():
         engine = create_engine(oracle_conn, arraysize=50000)
         df = pd.read_sql(f"SELECT * FROM BENCHMARK_SOURCE_{oracle_table_suffix}", engine)
         df.to_csv(f"/bench/artifacts/pandas_bench_oracle_to_csv.csv", index=False)
+
+    elif bench_id == "B13":
+        # PostgreSQL → PostgreSQL (bench_reader → bench_writer)
+        src_engine = create_engine(pg_reader_conn)
+        tgt_engine = create_engine(pg_writer_conn)
+        df = pd.read_sql(f"SELECT * FROM benchmark_source_{table_suffix}", src_engine)
+        df.to_sql("pandas_bench_pg2pg", tgt_engine, schema=pg_writer_schema, if_exists="replace", index=False)
+
+    elif bench_id == "B14":
+        # SQL Server → SQL Server (bench_reader → bench_writer)
+        src_engine = create_engine(mssql_reader_conn)
+        tgt_engine = create_engine(mssql_writer_conn)
+        df = pd.read_sql(f"SELECT * FROM benchmark_source_{table_suffix}", src_engine)
+        df.to_sql("pandas_bench_mssql2mssql", tgt_engine, schema=mssql_writer_schema, if_exists="replace", index=False)
+
+    elif bench_id == "B15":
+        # Oracle → Oracle (bench_reader → bench_writer)
+        oracle_owner = os.environ.get('DB_ORACLE_USER', 'testuser').upper()
+        src_engine = create_engine(oracle_reader_conn, arraysize=50000)
+        tgt_engine = create_engine(oracle_writer_conn)
+        df = pd.read_sql(f"SELECT RAWTOHEX(id) AS id, name, email, amount, country FROM {oracle_owner}.BENCHMARK_SOURCE_{oracle_table_suffix}", src_engine)
+        df.to_sql("pandas_bench_ora2ora", tgt_engine, if_exists="replace", index=False, dtype={'amount': Numeric(18, 2)})
 
     else:
         print(f"Unknown benchmark ID: {bench_id}")

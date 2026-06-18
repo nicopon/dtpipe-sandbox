@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 03-dtpipe.sh - dtpipe benchmark (executions INSIDE benchmark-dtpipe container)
+# 03-dtpipe.sh - dtpipe benchmark (executions INSIDE benchmark-test container)
 # Runs the same pipelines as Meltano and Sling for comparison
 #
 # IMPORTANT: Everything runs inside the container, nothing on the host
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
-CONFIG_DIR="$SCRIPT_DIR/config"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="$REPO_ROOT/lib"
+ARTIFACTS_DIR="$SCRIPT_DIR/../artifacts"
+CONFIG_DIR="$SCRIPT_DIR/../config"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
 
 # Source le module de détection du runtime container (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
@@ -18,7 +18,7 @@ init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"
 
 # Default values
-BENCHMARK_ROWS=2000000
+BENCHMARK_ROWS=250000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"           # all, B01-B12
 
@@ -82,7 +82,7 @@ trap "rm -rf $RUNNER_TMP" EXIT
 
 echo ""
 echo -e "${GREEN}================================================${NC}"
-echo -e "${GREEN}  dtpipe benchmark (benchmark-dtpipe container)${NC}"
+echo -e "${GREEN}  dtpipe benchmark (benchmark-test container)${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo "Settings :"
 echo -e "   Rows: $BENCHMARK_ROWS"
@@ -92,7 +92,7 @@ echo ""
 
 # Warm-up: ensure dtpipe (.NET tool) is JIT-compiled before the first timed run
 echo -e "${YELLOW}Warming up dtpipe...${NC}"
-container_exec benchmark-dtpipe bash -c 'export PATH="${PATH}:/root/.dotnet/tools" && dtpipe --version' > /dev/null 2>&1 || true
+container_exec benchmark-test dtpipe --version > /dev/null 2>&1 || true
 
 # =============================================================================
 # Benchmark function: Execute a dtpipe pipeline N times and record timings
@@ -110,14 +110,13 @@ run_pipeline() {
     fi
 
     echo ""
-    echo -e "${YELLOW}--- $bench_id: $description ---${NC}"
+    echo -e "${YELLOW}--- $bench_id (dtpipe): $description ---${NC}"
 
        # Write a runner script to a temp file on the host
     local runner_script="$RUNNER_TMP/${bench_id}.sh"
     cat > "$runner_script" << 'SCRIPT_HEADER'
 #!/bin/bash
 set +e
-export PATH="${PATH}:/root/.dotnet/tools"
 SCRIPT_HEADER
 
        # Append the actual dtpipe command (with all args properly quoted via heredoc)
@@ -143,7 +142,7 @@ SCRIPT_FOOTER
     chmod +x "$runner_script"
 
         # Copy the script into the container
-    container_cp "$runner_script" benchmark-dtpipe:/tmp/bench_runner.sh || {
+    container_cp "$runner_script" benchmark-test:/tmp/bench_runner.sh || {
         echo -e " ${RED}FAILED (script copy impossible)${NC}"
         return
      }
@@ -153,10 +152,10 @@ SCRIPT_FOOTER
     for i in $(seq 1 "$BENCHMARK_REPETITIONS"); do
         echo -n "  Run $i/$BENCHMARK_REPETITIONS..."
 
-        mem_watcher_start benchmark-dtpipe
+        mem_watcher_start benchmark-test
             # Execute the runner script inside the container
         local output
-        output=$(container_exec benchmark-dtpipe bash /tmp/bench_runner.sh 2>&1) || true
+        output=$(container_exec benchmark-test bash /tmp/bench_runner.sh 2>&1) || true
         local peak_mem
         peak_mem=$(mem_watcher_stop)
 
@@ -214,9 +213,9 @@ SCRIPT_FOOTER
        # Store result
     echo "$bench_id|$description|$avg|$avg_mem" >> "$RESULTS_CSV"
 
-      # Verify target data matches source
+         # Verify target data matches source (run inside benchmark-test container)
     if [[ "$avg" -ne 0 ]]; then
-        python3 "$SCRIPT_DIR/scripts/verify_data.py" "dtpipe" "$bench_id" "$BENCHMARK_ROWS" || true
+        container_exec benchmark-test /opt/venv/pandas/bin/python3 /bench/scripts/verify_data.py "dtpipe" "$bench_id" "$BENCHMARK_ROWS" || true
     fi
 }
 
@@ -353,6 +352,49 @@ run_pipeline "B12" "Oracle → CSV" \
       --output "/bench/artifacts/dtpipe_bench_oracle_to_csv.csv" \
       --no-schema-validation
 
+DB_POSTGRES_READER_UPPER=$(echo "${DB_POSTGRES_READER_USER:-bench_reader}" | tr '[:lower:]' '[:upper:]')
+DB_ORACLE_USER_UPPER=$(echo "${DB_ORACLE_USER:-testuser}" | tr '[:lower:]' '[:upper:]')
+DB_ORACLE_READER_UPPER=$(echo "${DB_ORACLE_READER_USER:-bench_reader}" | tr '[:lower:]' '[:upper:]')
+DB_ORACLE_WRITER_UPPER=$(echo "${DB_ORACLE_WRITER_USER:-bench_writer}" | tr '[:lower:]' '[:upper:]')
+
+# =============================================================================
+# B13: PostgreSQL → PostgreSQL (bench_reader → bench_writer schema)
+# =============================================================================
+run_pipeline "B13" "PostgreSQL → PostgreSQL" \
+      --input "pg:Host=$DB_POSTGRES_HOST;Port=$DB_POSTGRES_PORT;Database=$DB_POSTGRES_DB;Username=${DB_POSTGRES_READER_USER:-bench_reader};Password=${DB_POSTGRES_READER_PASSWORD:-password}" \
+      --query "SELECT * FROM benchmark_source_${SUFFIX}" \
+      --output "pg:Host=$DB_POSTGRES_HOST;Port=$DB_POSTGRES_PORT;Database=$DB_POSTGRES_DB;Username=${DB_POSTGRES_WRITER_USER:-bench_writer};Password=${DB_POSTGRES_WRITER_PASSWORD:-password}" \
+      --table "${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt}.dtpipe_bench_pg2pg" \
+      --strategy Recreate \
+      --pre-exec "DROP TABLE IF EXISTS ${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt}.dtpipe_bench_pg2pg CASCADE" \
+      --no-schema-validation
+
+# =============================================================================
+# B14: SQL Server → SQL Server (sa reader → bench_writer schema)
+# =============================================================================
+run_pipeline "B14" "SQL Server → SQL Server" \
+      --input "mssql:Server=$DB_MSSQL_HOST,$DB_MSSQL_PORT;Database=$DB_MSSQL_DB;User Id=${DB_MSSQL_READER_USER:-bench_reader};Password=${DB_MSSQL_READER_PASSWORD:-BenchReader1!};Encrypt=False" \
+      --query "SELECT * FROM benchmark_source_${SUFFIX}" \
+      --output "mssql:Server=$DB_MSSQL_HOST,$DB_MSSQL_PORT;Database=$DB_MSSQL_DB;User Id=${DB_MSSQL_WRITER_USER:-bench_writer};Password=${DB_MSSQL_WRITER_PASSWORD:-BenchWriter1!};Encrypt=False" \
+      --table "${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.dtpipe_bench_mssql2mssql" \
+      --strategy Recreate \
+      --pre-exec "IF OBJECT_ID('${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.dtpipe_bench_mssql2mssql', 'U') IS NOT NULL DROP TABLE ${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.dtpipe_bench_mssql2mssql" \
+      --no-schema-validation
+
+# =============================================================================
+# B15: Oracle → Oracle (bench_reader → bench_writer schema)
+# =============================================================================
+run_pipeline "B15" "Oracle → Oracle" \
+      --input "ora:Data Source=$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE;User Id=${DB_ORACLE_READER_USER:-bench_reader};Password=${DB_ORACLE_READER_PASSWORD:-password}" \
+      --ora-fetch-size 10485760 \
+      --query "SELECT * FROM ${DB_ORACLE_USER_UPPER}.BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
+      --output "ora:Data Source=$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE;User Id=${DB_ORACLE_WRITER_USER:-bench_writer};Password=${DB_ORACLE_WRITER_PASSWORD:-password}" \
+      --table "DTPIPE_BENCH_ORA2ORA" \
+      --strategy Recreate \
+      --pre-exec "BEGIN EXECUTE IMMEDIATE 'DROP TABLE DTPIPE_BENCH_ORA2ORA'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;" \
+      --no-schema-validation \
+      --insert-mode Bulk
+
 
 # =============================================================================
 # Generate JSON report for dtpipe
@@ -374,7 +416,11 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
             echo ","
         fi
         first=false
-        printf '            "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "${bavg_mem:-0}"
+        mem_val="${bavg_mem:-0}"
+        if ! [[ "$mem_val" =~ ^[0-9]+$ ]]; then
+            mem_val="\"$mem_val\""
+        fi
+        printf '            "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "$mem_val"
     done < "$RESULTS_CSV"
 
     echo ""

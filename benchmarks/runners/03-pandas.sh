@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 03-pandas.sh - Pandas benchmark (executions INSIDE benchmark-pandas container)
+# 03-pandas.sh - Pandas benchmark (executions INSIDE benchmark-test container)
 # Runs the same pipelines as dtpipe and Sling for comparison using Pandas & SQLAlchemy
 # 
 # IMPORTANT: Everything runs inside the container, nothing on the host
@@ -8,10 +8,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
-CONFIG_DIR="$SCRIPT_DIR/config"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="$REPO_ROOT/lib"
+ARTIFACTS_DIR="$SCRIPT_DIR/../artifacts"
+CONFIG_DIR="$SCRIPT_DIR/../config"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
 
 # Source le module de détection du runtime container (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
@@ -19,7 +19,7 @@ init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"
 
 # Default values
-BENCHMARK_ROWS=2000000
+BENCHMARK_ROWS=250000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"        # all, B01-B12
 
@@ -56,17 +56,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Docker compose helper (runs from config directory)
-docker_compose() {
-    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
-     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml "$@"
-}
-
-# docker exec helper for benchmark-pandas container
-exec_pandas_container() {
-    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
-     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml exec benchmark-pandas bash -c "$1"
-}
 
 # Ensure artifacts directory exists
 mkdir -p "$ARTIFACTS_DIR/pandas"
@@ -75,7 +64,7 @@ RESULTS_CSV="$ARTIFACTS_DIR/pandas/.tmp_results.csv"
 
 echo ""
 echo -e "${GREEN}================================================${NC}"
-echo -e "${GREEN}  pandas benchmark (benchmark-pandas container)${NC}"
+echo -e "${GREEN}  pandas benchmark (benchmark-test container)${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo "Settings :"
 echo -e "   Rows: $BENCHMARK_ROWS"
@@ -100,37 +89,33 @@ run_python_benchmark() {
     fi
 
     echo ""
-    echo -e "${YELLOW}--- $bench_id (Python): $description ---${NC}"
+    echo -e "${YELLOW}--- $bench_id (pandas - sqlalchemy): $description ---${NC}"
 
     local run_times=()
     local run_mem_peaks=()
     for i in $(seq 1 "$BENCHMARK_REPETITIONS"); do
         echo -n "  Run $i/$BENCHMARK_REPETITIONS..."
 
-        mem_watcher_start benchmark-pandas
-        # Execute Python benchmark script inside the container
-        if exec_pandas_container "/usr/bin/time -f '%e' -o /tmp/pandas_py_timing_${bench_id}_$i.txt python3 /bench/scripts/benchmarks/_pandas_bench.py $bench_id $BENCHMARK_ROWS > /tmp/pandas_py_output_${bench_id}_$i.txt 2>&1"; then
-            local peak_mem
-            peak_mem=$(mem_watcher_stop)
-            # Extract timing from the container's output file
-            local wall_time
-            wall_time=$(exec_pandas_container "cat /tmp/pandas_py_timing_${bench_id}_$i.txt" || echo "")
+        mem_watcher_start benchmark-test
+        local output
+        output=$(container_exec benchmark-test bash -c \
+            'START=$(date +%s%N); /opt/venv/pandas/bin/python3 /bench/scripts/benchmarks/_pandas_bench.py "$1" "$2" >/tmp/out.txt 2>&1; EC=$?; END=$(date +%s%N); echo "ELAPSED_MS:$(( (END-START)/1000000 )):$EC"; cat /tmp/out.txt; rm -f /tmp/out.txt' \
+            -- "$bench_id" "$BENCHMARK_ROWS" 2>&1) || true
+        local peak_mem
+        peak_mem=$(mem_watcher_stop)
 
-            if [[ -n "$wall_time" ]]; then
-                local ms
-                ms=$(echo "$wall_time" | awk '{printf "%d", $1 * 1000}')
-                echo -e " ${GREEN}OK (${ms} ms, +${peak_mem} MiB)${NC}"
-                run_times+=("$ms")
-                run_mem_peaks+=("$peak_mem")
-            else
-                echo -e " ${GREEN}OK (measurement not available)${NC}"
-                run_times+=("0")
-            fi
+        local status_line ms ec
+        status_line=$(echo "$output" | grep "^ELAPSED_MS:" | head -1)
+        ms=$(echo "$status_line" | cut -d: -f2)
+        ec=$(echo "$status_line" | cut -d: -f3)
 
-            exec_pandas_container "rm -f /tmp/pandas_py_timing_${bench_id}_$i.txt /tmp/pandas_py_output_${bench_id}_$i.txt" >/dev/null 2>&1 || true
+        if [[ -n "$ms" && "${ec:-1}" == "0" ]]; then
+            echo -e " ${GREEN}OK (${ms} ms, +${peak_mem} MiB)${NC}"
+            run_times+=("$ms")
+            run_mem_peaks+=("$peak_mem")
         else
-            mem_watcher_stop > /dev/null
             echo -e " ${RED}FAILED${NC}"
+            echo "$output" | grep -v "^ELAPSED_MS:" || true
             run_times+=("ERROR:0")
         fi
     done
@@ -163,18 +148,18 @@ run_python_benchmark() {
 
     echo -e "   Average: ${avg} ms, peak memory delta: +${avg_mem} MiB ($count runs)"
 
-    # Store result (append to same CSV, with Python prefix)
-    echo "$bench_id|$description(python)|$avg|$avg_mem" >> "$RESULTS_CSV"
+    # Store result (append to same CSV, with pandas - sqlalchemy prefix)
+    echo "$bench_id|$description(pandas - sqlalchemy)|$avg|$avg_mem" >> "$RESULTS_CSV"
 
-    # Verify target data matches source
+          # Verify target data matches source (run inside benchmark-test container)
     if [[ "$avg" -ne 0 ]]; then
-        python3 "$SCRIPT_DIR/scripts/verify_data.py" "pandas" "$bench_id" "$BENCHMARK_ROWS" || true
+        container_exec benchmark-test /opt/venv/pandas/bin/python3 /bench/scripts/verify_data.py "pandas" "$bench_id" "$BENCHMARK_ROWS" || true
     fi
 }
 
 # Warm-up: trigger Python/pandas import so the first timed run is not a cold start
 echo -e "${YELLOW}Warming up pandas...${NC}"
-exec_pandas_container "python3 -c 'import pandas, sqlalchemy, pyarrow'" > /dev/null 2>&1 || true
+container_exec benchmark-test /opt/venv/pandas/bin/python3 -c 'import pandas, sqlalchemy, pyarrow' > /dev/null 2>&1 || true
 
 # Use Python-based benchmarks for pandas
 run_python_benchmark "B01" "Parquet → PostgreSQL"
@@ -189,6 +174,9 @@ run_python_benchmark "B09" "Parquet → SQL Server"
 run_python_benchmark "B10" "SQL Server → Parquet"
 run_python_benchmark "B11" "CSV → Oracle"
 run_python_benchmark "B12" "Oracle → CSV"
+run_python_benchmark "B13" "PostgreSQL → PostgreSQL"
+run_python_benchmark "B14" "SQL Server → SQL Server"
+run_python_benchmark "B15" "Oracle → Oracle"
 
 
 # =============================================================================
@@ -211,9 +199,13 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
             echo ","
         fi
         first=false
-        # Clean up description (remove "(python)" suffix for display)
-        clean_desc=$(echo "$bdesc" | sed 's/(python)//')
-        printf '       "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$clean_desc" "$bavg" "${bavg_mem:-0}"
+        # Clean up description (remove "(pandas - sqlalchemy)" suffix for display)
+        clean_desc=$(echo "$bdesc" | sed 's/(pandas - sqlalchemy)//')
+        mem_val="${bavg_mem:-0}"
+        if ! [[ "$mem_val" =~ ^[0-9]+$ ]]; then
+            mem_val="\"$mem_val\""
+        fi
+        printf '       "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$clean_desc" "$bavg" "$mem_val"
     done < "$RESULTS_CSV"
 
     echo ""

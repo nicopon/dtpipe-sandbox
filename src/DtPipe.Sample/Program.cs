@@ -8,7 +8,7 @@ using DtPipe.Adapters.Generate;
 using DtPipe.Core;
 using DtPipe.Core.Abstractions;
 using DtPipe.Core.Models;
-using Microsoft.Data.Analysis;
+using System.Data;
 using Microsoft.Extensions.Logging;
 
 namespace DtPipe.Sample;
@@ -36,7 +36,7 @@ class Program
         Console.WriteLine("\n--------------------------------------------------\n");
         await RunWriterOnlyExampleAsync(loggerFactory);
         Console.WriteLine("\n--------------------------------------------------\n");
-        await RunDataFrameToWriterExampleAsync(loggerFactory);
+        await RunDataTableToWriterExampleAsync(loggerFactory);
         Console.WriteLine("\n--------------------------------------------------\n");
         await RunCustomTransformerExampleAsync(loggerFactory);
         Console.WriteLine("\n--------------------------------------------------\n");
@@ -155,53 +155,50 @@ class Program
     }
 
     /// <summary>
-    /// Scenario 4: Exporting a Microsoft.Data.Analysis DataFrame into a DtPipe writer.
-    /// Native integration mapping DataFrame columns to PipeColumnInfo schemas.
+    /// Scenario 4: Exporting an ADO.NET DataTable into a DtPipe writer.
+    /// Demonstrates the bridge pattern: discover schema from an external object model,
+    /// then push its rows directly via WriteBatchAsync — no PipelineEngine involved.
+    /// DataTable is a common return type from ORMs, stored procedures, and legacy APIs.
     /// </summary>
-    static async Task RunDataFrameToWriterExampleAsync(ILoggerFactory loggerFactory)
+    static async Task RunDataTableToWriterExampleAsync(ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger<Program>();
-        logger.LogInformation("--- Scenario 4: DataFrame to Writer ---");
+        logger.LogInformation("--- Scenario 4: DataTable to Writer ---");
 
-        // 1. Create a dummy DataFrame
-        var df = new DataFrame(
-            new PrimitiveDataFrameColumn<int>("UserId", new[] { 1, 2, 3 }),
-            new StringDataFrameColumn("Email", new[] { "a@test.com", "b@test.com", "c@test.com" }),
-            new PrimitiveDataFrameColumn<bool>("IsActive", new[] { true, false, true })
-        );
+        // 1. Build a DataTable (stand-in for any external ADO.NET data source)
+        var dt = new DataTable("Users");
+        dt.Columns.Add("UserId", typeof(int));
+        dt.Columns.Add("Email",  typeof(string));
+        dt.Columns.Add("IsActive", typeof(bool));
+        dt.Rows.Add(1, "a@test.com", true);
+        dt.Rows.Add(2, "b@test.com", false);
+        dt.Rows.Add(3, "c@test.com", true);
 
-        // 2. Discover Schema dynamically
-        var columns = new PipeColumnInfo[df.Columns.Count];
-        for (int i = 0; i < df.Columns.Count; i++)
+        // 2. Discover schema dynamically from DataColumn metadata
+        var columns = new PipeColumnInfo[dt.Columns.Count];
+        for (int i = 0; i < dt.Columns.Count; i++)
         {
-            var col = df.Columns[i];
-            columns[i] = new PipeColumnInfo(col.Name, col.DataType, IsNullable: true);
+            var col = dt.Columns[i];
+            columns[i] = new PipeColumnInfo(col.ColumnName, col.DataType, IsNullable: true);
         }
 
-        // 3. Setup Writer
-        var writerOptions = new CsvWriterOptions { Separator = ",", Header = true };
-        var writer = new CsvDataWriter("-", writerOptions); // STDOUT
-
+        // 3. Setup writer
+        var writer = new CsvDataWriter("-", new CsvWriterOptions { Separator = ",", Header = true });
         await writer.InitializeAsync(columns, CancellationToken.None);
 
-        // 4. Translate and Push
-        var batch = new object?[df.Rows.Count][];
-        for (long i = 0; i < df.Rows.Count; i++)
+        // 4. Translate DataRows into object?[][] and push as a single batch
+        var batch = new object?[dt.Rows.Count][];
+        for (int i = 0; i < dt.Rows.Count; i++)
         {
-            var row = new object?[df.Columns.Count];
-            for (int c = 0; c < df.Columns.Count; c++)
-            {
-                row[c] = df.Columns[c][i];
-            }
-            batch[i] = row;
+            batch[i] = dt.Rows[i].ItemArray!;
         }
 
-        logger.LogInformation("Writing DataFrame (Rows: {Rows}, Cols: {Cols})...", df.Rows.Count, df.Columns.Count);
+        logger.LogInformation("Writing DataTable (Rows: {Rows}, Cols: {Cols})...", dt.Rows.Count, dt.Columns.Count);
 
         await writer.WriteBatchAsync(batch, CancellationToken.None);
         await writer.CompleteAsync(CancellationToken.None);
 
-        logger.LogInformation("DataFrame export completed.");
+        logger.LogInformation("DataTable export completed.");
     }
 
     /// <summary>
@@ -258,7 +255,7 @@ class Program
             // Simple robust transformation using pure C# (compiled natively, very fast)
             if (result.Length > 0 && result[0] is long id)
             {
-                result[0] = $"Hello {id}"; // Boxing the new string into the object array
+                result[0] = $"Hello {id}"; // Assigns a string into an object?[] slot — not boxing (boxing applies to value types)
             }
             return result; // Return the mutated array to yield it downstream
         }
@@ -333,7 +330,7 @@ class Program
                 yield return buffer.AsMemory(0, count); // Flush remaining items
             }
 
-            await Task.Yield(); // Satisfy async compiler expectation
+            await Task.Yield(); // Required: without a real await the compiler would treat this as synchronous despite the async keyword
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

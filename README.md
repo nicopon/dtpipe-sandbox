@@ -18,7 +18,6 @@ dtpipe-sandbox/
 │        └── Program.cs
 ├── benchmarks/                    # Dockerized comparative benchmark suite
 │    ├── benchmarks.sh              # Self-contained launcher (Linux / macOS / Git Bash / WSL)
-│    ├── benchmarks.ps1             # PowerShell launcher (Windows)
 │    ├── 03-dtpipe.sh               # dtpipe runner
 │    ├── 03-pandas.sh               # pandas + SQLAlchemy runner
 │    ├── 03-meltano.sh              # Meltano (Singer) runner
@@ -98,12 +97,12 @@ cd benchmarks/
 ./benchmarks.sh --help         # all options
 ```
 
-#### Windows (PowerShell 7+)
+#### Windows (Git Bash or WSL)
 
-```powershell
-cd benchmarks\
-.\benchmarks.ps1               # requires WSL or Git for Windows
-.\benchmarks.ps1 -help         # all options
+```bash
+cd benchmarks/
+./benchmarks.sh                # full run
+./benchmarks.sh --help         # all options
 ```
 
 #### Common options

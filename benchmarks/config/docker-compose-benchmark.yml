@@ -1,82 +1,21 @@
 services:
-   benchmark-dtpipe:
+  benchmark-test:
     build:
       context: ..
-      dockerfile: docker/benchmark-dtpipe/Dockerfile
-    container_name: benchmark-dtpipe
+      dockerfile: docker/benchmark-test/Dockerfile
+      args:
+        - DTPIPE_VERSION
+        - SLING_VERSION
+        - INGESTR_VERSION
+    container_name: benchmark-test
     stdin_open: true
     tty: true
     volumes:
-       - ../artifacts:/bench/artifacts
-       - ../scripts:/bench/scripts
+      - ../artifacts:/bench/artifacts
+      - ../scripts:/bench/scripts
     networks:
-       - benchmark-net
-
-   benchmark-pandas:
-    build:
-      context: ..
-      dockerfile: docker/benchmark-pandas/Dockerfile
-    container_name: benchmark-pandas
-    stdin_open: true
-    tty: true
-    volumes:
-       - ../artifacts:/bench/artifacts
-       - ../scripts:/bench/scripts
-    networks:
-       - benchmark-net
-
-   benchmark-meltano:
-    build:
-      context: ..
-      dockerfile: docker/benchmark-meltano/Dockerfile
-    container_name: benchmark-meltano
-    stdin_open: true
-    tty: true
-    volumes:
-       - ../artifacts:/bench/artifacts
-       - ../scripts:/bench/scripts
-    networks:
-       - benchmark-net
-
-   benchmark-sling:
-    build:
-      context: ..
-      dockerfile: docker/benchmark-sling/Dockerfile
-    container_name: benchmark-sling
-    stdin_open: true
-    tty: true
-    volumes:
-       - ../artifacts:/bench/artifacts
-       - ../scripts:/bench/scripts
-    networks:
-       - benchmark-net
-
-   benchmark-native:
-    build:
-      context: ..
-      dockerfile: docker/benchmark-native/Dockerfile
-    container_name: benchmark-native
-    stdin_open: true
-    tty: true
-    volumes:
-       - ../artifacts:/bench/artifacts
-       - ../scripts:/bench/scripts
-    networks:
-       - benchmark-net
-
-   benchmark-ingestr:
-    build:
-      context: ..
-      dockerfile: docker/benchmark-ingestr/Dockerfile
-    container_name: benchmark-ingestr
-    stdin_open: true
-    tty: true
-    volumes:
-       - ../artifacts:/bench/artifacts
-       - ../scripts:/bench/scripts
-    networks:
-       - benchmark-net
+      - benchmark-net
 
 networks:
-   benchmark-net:
+  benchmark-net:
     driver: bridge

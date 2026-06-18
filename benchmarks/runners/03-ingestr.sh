@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 03-ingestr.sh - Ingestr benchmark (executions INSIDE benchmark-ingestr container)
+# 03-ingestr.sh - Ingestr benchmark (executions INSIDE benchmark-test container)
 # Runs the same pipelines as other tools for comparison
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
-CONFIG_DIR="$SCRIPT_DIR/config"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="$REPO_ROOT/lib"
+ARTIFACTS_DIR="$SCRIPT_DIR/../artifacts"
+CONFIG_DIR="$SCRIPT_DIR/../config"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
 
 # Source le module de détection du runtime container (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
@@ -17,7 +17,7 @@ init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"
 
 # Default values
-BENCHMARK_ROWS=2000000
+BENCHMARK_ROWS=250000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"           # all, B01-B12
 
@@ -68,18 +68,8 @@ else
     fi
 fi
 SUFFIX_UPPER=$(echo "$SUFFIX" | tr '[:lower:]' '[:upper:]')
+DB_ORACLE_USER_UPPER=$(echo "${DB_ORACLE_USER:-testuser}" | tr '[:lower:]' '[:upper:]')
 
-# Container compose helper (runs from config directory)
-container_compose_helper() {
-    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
-     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml "$@"
-}
-
-# Container exec helper for benchmark-ingestr container
-exec_ingestr_container() {
-    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
-     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml exec benchmark-ingestr bash -c "$1"
-}
 
 # Ensure artifacts directory exists
 mkdir -p "$ARTIFACTS_DIR/ingestr"
@@ -88,7 +78,7 @@ RESULTS_CSV="$ARTIFACTS_DIR/ingestr/.tmp_results.csv"
 
 echo ""
 echo -e "${GREEN}================================================${NC}"
-echo -e "${GREEN}  ingestr benchmark (benchmark-ingestr container)${NC}"
+echo -e "${GREEN}  ingestr benchmark (benchmark-test container)${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo "Settings :"
 echo -e "   Rows: $BENCHMARK_ROWS"
@@ -98,7 +88,7 @@ echo ""
 
 # Warm-up: ensure ingestr binary is loaded before the first timed run
 echo -e "${YELLOW}Warming up ingestr...${NC}"
-exec_ingestr_container "ingestr --version" > /dev/null 2>&1 || true
+container_exec benchmark-test ingestr --version > /dev/null 2>&1 || true
 
 # =============================================================================
 # Benchmark function: Execute an ingestr pipeline N times and record timings
@@ -121,48 +111,57 @@ run_pipeline() {
     # Check if this benchmark is supported
     if [[ "$src_uri" == "NOT_SUPPORTED" ]]; then
         echo -e "${YELLOW}$bench_id: $description [NOT SUPPORTED by ingestr]${NC}"
-        echo "$bench_id|$description|Not supported" >> "$RESULTS_CSV"
+        echo "$bench_id|$description|Not supported|N/A" >> "$RESULTS_CSV"
         return
     fi
 
     echo ""
-    echo -e "${YELLOW}--- $bench_id: $description ---${NC}"
+    echo -e "${YELLOW}--- $bench_id (ingestr): $description ---${NC}"
 
     # Build the ingestr command
     local ingestr_cmd="ingestr ingest --source-uri '$src_uri' --source-table '$src_table' --dest-uri '$dest_uri' --dest-table '$dest_table' --yes --progress log --full-refresh --schema-naming direct $extra_flags"
+
+    # Write runner script to a temp file and copy it into the container (avoids quoting issues)
+    local runner_script
+    runner_script=$(mktemp)
+    cat > "$runner_script" << 'RUNNER_HEADER'
+#!/bin/bash
+set +e
+START=$(date +%s%N)
+RUNNER_HEADER
+    echo "$ingestr_cmd > /tmp/out.txt 2>&1; EC=\$?" >> "$runner_script"
+    cat >> "$runner_script" << 'RUNNER_FOOTER'
+END=$(date +%s%N)
+echo "ELAPSED_MS:$(( (END-START)/1000000 )):$EC"
+cat /tmp/out.txt; rm -f /tmp/out.txt
+RUNNER_FOOTER
+    container_cp "$runner_script" benchmark-test:/tmp/bench_runner.sh
+    rm -f "$runner_script"
 
     local run_times=()
     local run_mem_peaks=()
     for i in $(seq 1 "$BENCHMARK_REPETITIONS"); do
         echo -n "  Run $i/$BENCHMARK_REPETITIONS..."
 
-        mem_watcher_start benchmark-ingestr
-        # Execute ingestr inside the container and capture timing
-        if exec_ingestr_container "/usr/bin/time -f '%e' -o /tmp/ingestr_timing_${bench_id}_$i.txt $ingestr_cmd > /tmp/ingestr_output_${bench_id}_$i.txt 2>&1"; then
-            local peak_mem
-            peak_mem=$(mem_watcher_stop)
-            # Extract timing from the container's output file
-            local wall_time
-            wall_time=$(exec_ingestr_container "cat /tmp/ingestr_timing_${bench_id}_$i.txt" || echo "")
+        mem_watcher_start benchmark-test
+        local output
+        output=$(container_exec benchmark-test bash /tmp/bench_runner.sh 2>&1) || true
+        local peak_mem
+        peak_mem=$(mem_watcher_stop)
 
-            if [[ -n "$wall_time" ]]; then
-                local ms
-                ms=$(echo "$wall_time" | awk '{printf "%d", $1 * 1000}')
-                echo -e " ${GREEN}OK (${ms} ms, +${peak_mem} MiB)${NC}"
-                run_times+=("$ms")
-                run_mem_peaks+=("$peak_mem")
-            else
-                echo -e " ${GREEN}OK (measurement not available)${NC}"
-                run_times+=("0")
-            fi
+        local status_line ms ec
+        status_line=$(echo "$output" | grep "^ELAPSED_MS:" | head -1)
+        ms=$(echo "$status_line" | cut -d: -f2)
+        ec=$(echo "$status_line" | cut -d: -f3)
 
-            exec_ingestr_container "rm -f /tmp/ingestr_timing_${bench_id}_$i.txt /tmp/ingestr_output_${bench_id}_$i.txt" >/dev/null 2>&1 || true
+        if [[ -n "$ms" && "${ec:-1}" == "0" ]]; then
+            echo -e " ${GREEN}OK (${ms} ms, +${peak_mem} MiB)${NC}"
+            run_times+=("$ms")
+            run_mem_peaks+=("$peak_mem")
         else
-            mem_watcher_stop > /dev/null
             echo -e " ${RED}FAILED${NC}"
-            exec_ingestr_container "cat /tmp/ingestr_output_${bench_id}_$i.txt" || true
+            echo "$output" | grep -v "^ELAPSED_MS:" || true
             run_times+=("ERROR:0")
-            exec_ingestr_container "rm -f /tmp/ingestr_timing_${bench_id}_$i.txt /tmp/ingestr_output_${bench_id}_$i.txt" >/dev/null 2>&1 || true
         fi
     done
 
@@ -197,9 +196,9 @@ run_pipeline() {
     # Store result
     echo "$bench_id|$description|$avg|$avg_mem" >> "$RESULTS_CSV"
 
-    # Verify target data matches source
+           # Verify target data matches source (run inside benchmark-test container)
     if [[ "$avg" -ne 0 ]]; then
-        python3 "$SCRIPT_DIR/scripts/verify_data.py" "ingestr" "$bench_id" "$BENCHMARK_ROWS" || true
+        container_exec benchmark-test /opt/venv/pandas/bin/python3 /bench/scripts/verify_data.py "ingestr" "$bench_id" "$BENCHMARK_ROWS" || true
     fi
 }
 
@@ -243,7 +242,7 @@ run_pipeline "B05" "Parquet → Oracle" \
 
 # B06: Oracle → Parquet
 run_pipeline "B06" "Oracle → Parquet" \
-    "$ORACLE_URI" "TESTUSER.BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
+    "$ORACLE_URI" "${DB_ORACLE_USER_UPPER}.BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
     "parquet:///bench/artifacts/ingestr_bench_oracle_to_pq.parquet" "ingestr_bench_oracle_to_pq"
 
 # B07: CSV → PostgreSQL
@@ -273,9 +272,30 @@ run_pipeline "B11" "CSV → Oracle" \
 
 # B12: Oracle → CSV
 run_pipeline "B12" "Oracle → CSV" \
-    "$ORACLE_URI" "TESTUSER.BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
+    "$ORACLE_URI" "${DB_ORACLE_USER_UPPER}.BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
     "csv:///bench/artifacts/ingestr_bench_oracle_to_csv.csv" "ingestr_bench_oracle_to_csv" \
     "--columns ID:uuid"
+
+# --- B13/B14/B15: Intra-DB benchmarks ---
+POSTGRES_READER_URI="postgresql://${DB_POSTGRES_READER_USER:-bench_reader}:${DB_POSTGRES_READER_PASSWORD:-password}@$DB_POSTGRES_HOST:$DB_POSTGRES_PORT/$DB_POSTGRES_DB"
+POSTGRES_WRITER_URI="postgresql://${DB_POSTGRES_WRITER_USER:-bench_writer}:${DB_POSTGRES_WRITER_PASSWORD:-password}@$DB_POSTGRES_HOST:$DB_POSTGRES_PORT/$DB_POSTGRES_DB"
+MSSQL_READER_URI="mssql://${DB_MSSQL_READER_USER:-bench_reader}:${DB_MSSQL_READER_PASSWORD:-BenchReader1!}@$DB_MSSQL_HOST:$DB_MSSQL_PORT/$DB_MSSQL_DB?encrypt=disable"
+MSSQL_WRITER_URI="mssql://${DB_MSSQL_WRITER_USER:-bench_writer}:${DB_MSSQL_WRITER_PASSWORD:-BenchWriter1!}@$DB_MSSQL_HOST:$DB_MSSQL_PORT/$DB_MSSQL_DB?encrypt=disable"
+
+# B13: PostgreSQL → PostgreSQL
+run_pipeline "B13" "PostgreSQL → PostgreSQL" \
+    "$POSTGRES_READER_URI" "public.benchmark_source_${SUFFIX}" \
+    "$POSTGRES_WRITER_URI" "${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt}.ingestr_bench_pg2pg" \
+    "--columns id:text"
+
+# B14: SQL Server → SQL Server
+run_pipeline "B14" "SQL Server → SQL Server" \
+    "$MSSQL_READER_URI" "dbo.benchmark_source_${SUFFIX}" \
+    "$MSSQL_WRITER_URI" "${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.ingestr_bench_mssql2mssql"
+
+# B15: Oracle → Oracle (Not supported: Oracle is not a supported destination in ingestr)
+run_pipeline "B15" "Oracle → Oracle" \
+    "NOT_SUPPORTED" "" "" ""
 
 
 # =============================================================================
@@ -298,10 +318,14 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
             echo ","
         fi
         first=false
+        mem_val="${bavg_mem:-0}"
+        if ! [[ "$mem_val" =~ ^[0-9]+$ ]]; then
+            mem_val="\"$mem_val\""
+        fi
         if [[ "$bavg" =~ ^[0-9]+$ ]]; then
-            printf '      "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "${bavg_mem:-0}"
+            printf '      "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "$mem_val"
         else
-            printf '      "%s": { "description": "%s", "avg_duration_ms": "%s", "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "${bavg_mem:-0}"
+            printf '      "%s": { "description": "%s", "avg_duration_ms": "%s", "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "$mem_val"
         fi
     done < "$RESULTS_CSV"
 

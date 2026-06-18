@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 03-native.sh - Native tools benchmark (executions INSIDE benchmark-native container)
+# 03-native.sh - Native tools benchmark (executions INSIDE benchmark-test container)
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
-CONFIG_DIR="$SCRIPT_DIR/config"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="$REPO_ROOT/lib"
+ARTIFACTS_DIR="$SCRIPT_DIR/../artifacts"
+CONFIG_DIR="$SCRIPT_DIR/../config"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
 
 # Source le module de détection du runtime container (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
@@ -16,7 +16,7 @@ init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"
 
 # Default values
-BENCHMARK_ROWS=2000000
+BENCHMARK_ROWS=250000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"         # all, B01-B12
 
@@ -68,17 +68,6 @@ else
 fi
 SUFFIX_UPPER=$(echo "$SUFFIX" | tr '[:lower:]' '[:upper:]')
 
-# Container compose helper (runs from config directory)
-container_compose_helper() {
-    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
-     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml "$@"
-}
-
-# Container exec helper for benchmark-native container
-exec_native_container() {
-    COMPOSE_PROJECT_DIR="$CONFIG_DIR"
-     container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml exec benchmark-native bash -c "$1"
-}
 
 # Ensure artifacts directory exists
 mkdir -p "$ARTIFACTS_DIR/native"
@@ -87,7 +76,7 @@ RESULTS_CSV="$ARTIFACTS_DIR/native/.tmp_results.csv"
 
 echo ""
 echo -e "${GREEN}================================================${NC}"
-echo -e "${GREEN}  Native tools benchmark (benchmark-native container)${NC}"
+echo -e "${GREEN}  Native tools benchmark (benchmark-test container)${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo "Settings :"
 echo -e "   Rows: $BENCHMARK_ROWS"
@@ -97,7 +86,7 @@ echo ""
 
 # Warm-up: ensure native CLI tools are loaded before the first timed run
 echo -e "${YELLOW}Warming up native tools...${NC}"
-exec_native_container "psql --version && sqlcmd -? > /dev/null 2>&1; sqlplus -V" > /dev/null 2>&1 || true
+container_exec benchmark-test bash -c 'psql --version && sqlcmd -? > /dev/null 2>&1; sqlplus -V' > /dev/null 2>&1 || true
 
 # =============================================================================
 # Benchmark function: Execute a command N times and record timings
@@ -115,47 +104,57 @@ run_native_benchmark() {
     fi
 
     echo ""
-    echo -e "${YELLOW}--- $bench_id: $description ---${NC}"
+    echo -e "${YELLOW}--- $bench_id (native): $description ---${NC}"
 
     local run_times=()
     local run_mem_peaks=()
     for i in $(seq 1 "$BENCHMARK_REPETITIONS"); do
         echo -n "  Run $i/$BENCHMARK_REPETITIONS..."
 
-         # Run setup command if defined (not timed, run before EVERY repetition to reset DB state)
+        # Run setup command if defined (not timed, run before EVERY repetition to reset DB state)
         if [[ -n "$setup_cmd" ]]; then
-            exec_native_container "$setup_cmd" > /dev/null || {
+            container_exec benchmark-test bash -c "$setup_cmd" > /dev/null || {
                 echo -e "   ${RED}Setup FAILED${NC}"
                 run_times+=("ERROR:0")
                 continue
-             }
+            }
         fi
 
-        mem_watcher_start benchmark-native
-         # Execute the native command inside the container and capture timing using /usr/bin/time
-        if exec_native_container "/usr/bin/time -f '%e' -o /tmp/native_timing_${bench_id}_$i.txt $run_cmd > /tmp/native_output_${bench_id}_$i.txt 2>&1"; then
-            local peak_mem
-            peak_mem=$(mem_watcher_stop)
-             # Extract timing from the container's output file
-            local wall_time
-            wall_time=$(exec_native_container "cat /tmp/native_timing_${bench_id}_$i.txt" || echo "")
+        # Write runner script to a temp file and copy it into the container (avoids quoting issues)
+        local runner_script
+        runner_script=$(mktemp)
+        cat > "$runner_script" << 'RUNNER_HEADER'
+#!/bin/bash
+set +e
+START=$(date +%s%N)
+RUNNER_HEADER
+        echo "$run_cmd > /tmp/out.txt 2>&1; EC=\$?" >> "$runner_script"
+        cat >> "$runner_script" << 'RUNNER_FOOTER'
+END=$(date +%s%N)
+echo "ELAPSED_MS:$(( (END-START)/1000000 )):$EC"
+cat /tmp/out.txt; rm -f /tmp/out.txt
+RUNNER_FOOTER
+        container_cp "$runner_script" benchmark-test:/tmp/bench_runner.sh
+        rm -f "$runner_script"
 
-            if [[ -n "$wall_time" ]]; then
-                local ms
-                ms=$(echo "$wall_time" | awk '{printf "%d", $1 * 1000}')
-                echo -e " ${GREEN}OK (${ms} ms, +${peak_mem} MiB)${NC}"
-                run_times+=("$ms")
-                run_mem_peaks+=("$peak_mem")
-            else
-                echo -e " ${GREEN}OK (measurement not available)${NC}"
-                run_times+=("0")
-            fi
+        mem_watcher_start benchmark-test
+        local output
+        output=$(container_exec benchmark-test bash /tmp/bench_runner.sh 2>&1) || true
+        local peak_mem
+        peak_mem=$(mem_watcher_stop)
 
-            exec_native_container "rm -f /tmp/native_timing_${bench_id}_$i.txt /tmp/native_output_${bench_id}_$i.txt" >/dev/null 2>&1 || true
+        local status_line ms ec
+        status_line=$(echo "$output" | grep "^ELAPSED_MS:" | head -1)
+        ms=$(echo "$status_line" | cut -d: -f2)
+        ec=$(echo "$status_line" | cut -d: -f3)
+
+        if [[ -n "$ms" && "${ec:-1}" == "0" ]]; then
+            echo -e " ${GREEN}OK (${ms} ms, +${peak_mem} MiB)${NC}"
+            run_times+=("$ms")
+            run_mem_peaks+=("$peak_mem")
         else
-            mem_watcher_stop > /dev/null
             echo -e " ${RED}FAILED${NC}"
-            exec_native_container "cat /tmp/native_output_${bench_id}_$i.txt" || true
+            echo "$output" | grep -v "^ELAPSED_MS:" || true
             run_times+=("ERROR:0")
         fi
     done
@@ -191,9 +190,9 @@ run_native_benchmark() {
      # Store result
     echo "$bench_id|$description|$avg|$avg_mem" >> "$RESULTS_CSV"
 
-      # Verify target data matches source
+    # Verify target data matches source (run inside benchmark-test container)
     if [[ "$avg" -ne 0 ]]; then
-        python3 "$SCRIPT_DIR/scripts/verify_data.py" "native" "$bench_id" "$BENCHMARK_ROWS" || true
+        container_exec benchmark-test /opt/venv/pandas/bin/python3 /bench/scripts/verify_data.py "native" "$bench_id" "$BENCHMARK_ROWS" || true
     fi
 }
 
@@ -201,12 +200,12 @@ run_native_benchmark() {
 # =============================================================================
 # B01: Parquet → PostgreSQL (Not natively supported)
 # =============================================================================
-echo "B01|Parquet → PostgreSQL|Not supported" >> "$RESULTS_CSV"
+echo "B01|Parquet → PostgreSQL|Not supported|N/A" >> "$RESULTS_CSV"
 
 # =============================================================================
 # B02: PostgreSQL → Parquet (Not natively supported)
 # =============================================================================
-echo "B02|PostgreSQL → Parquet|Not supported" >> "$RESULTS_CSV"
+echo "B02|PostgreSQL → Parquet|Not supported|N/A" >> "$RESULTS_CSV"
 
 # =============================================================================
 # B03: CSV → SQL Server (bcp in)
@@ -225,12 +224,12 @@ run_native_benchmark "B04" "SQL Server → CSV" "$B04_SETUP" "$B04_RUN"
 # =============================================================================
 # B05: Parquet → Oracle (Not natively supported)
 # =============================================================================
-echo "B05|Parquet → Oracle|Not supported" >> "$RESULTS_CSV"
+echo "B05|Parquet → Oracle|Not supported|N/A" >> "$RESULTS_CSV"
 
 # =============================================================================
 # B06: Oracle → Parquet (Not natively supported)
 # =============================================================================
-echo "B06|Oracle → Parquet|Not supported" >> "$RESULTS_CSV"
+echo "B06|Oracle → Parquet|Not supported|N/A" >> "$RESULTS_CSV"
 
 # =============================================================================
 # B07: CSV → PostgreSQL (psql \copy in)
@@ -250,12 +249,12 @@ run_native_benchmark "B08" "PostgreSQL → CSV" "$B08_SETUP" "$B08_RUN"
 # =============================================================================
 # B09: Parquet → SQL Server (Not natively supported)
 # =============================================================================
-echo "B09|Parquet → SQL Server|Not supported" >> "$RESULTS_CSV"
+echo "B09|Parquet → SQL Server|Not supported|N/A" >> "$RESULTS_CSV"
 
 # =============================================================================
 # B10: SQL Server → Parquet (Not natively supported)
 # =============================================================================
-echo "B10|SQL Server → Parquet|Not supported" >> "$RESULTS_CSV"
+echo "B10|SQL Server → Parquet|Not supported|N/A" >> "$RESULTS_CSV"
 
 # =============================================================================
 # B11: CSV → Oracle (sqlldr)
@@ -297,6 +296,85 @@ echo \"EXIT;\" >> /tmp/unload_oracle.sql"
 B12_RUN="sqlplus -S \"$DB_ORACLE_USER/$DB_ORACLE_PASSWORD@//$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE\" @/tmp/unload_oracle.sql"
 run_native_benchmark "B12" "Oracle → CSV" "$B12_SETUP" "$B12_RUN"
 
+DB_ORACLE_USER_UPPER=$(echo "${DB_ORACLE_USER:-testuser}" | tr '[:lower:]' '[:upper:]')
+DB_ORACLE_WRITER_UPPER=$(echo "${DB_ORACLE_WRITER_USER:-bench_writer}" | tr '[:lower:]' '[:upper:]')
+
+# =============================================================================
+# B13: PostgreSQL → PostgreSQL (pg_dump custom format → pg_restore)
+# Uses two separate accounts: bench_reader dumps, bench_writer restores
+# =============================================================================
+# COPY TO STDOUT (FORMAT binary) piped to COPY FROM STDIN (FORMAT binary).
+# No pg_dump/pg_restore version dependency — pure SQL protocol, works across all PG versions.
+# Setup: drop+recreate target table with same schema (LIKE), owned by bench_writer.
+B13_SETUP="PGPASSWORD=\"${DB_POSTGRES_WRITER_PASSWORD:-password}\" psql \
+  -h \"$DB_POSTGRES_HOST\" -p \"$DB_POSTGRES_PORT\" \
+  -U \"${DB_POSTGRES_WRITER_USER:-bench_writer}\" -d \"$DB_POSTGRES_DB\" -c \
+  \"DROP TABLE IF EXISTS ${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt}.native_bench_pg2pg CASCADE; \
+    CREATE TABLE ${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt}.native_bench_pg2pg \
+      (id UUID, name TEXT, email TEXT, amount NUMERIC, country TEXT);\""
+
+
+B13_RUN="PGPASSWORD=\"${DB_POSTGRES_READER_PASSWORD:-password}\" psql \
+  -h \"$DB_POSTGRES_HOST\" -p \"$DB_POSTGRES_PORT\" \
+  -U \"${DB_POSTGRES_READER_USER:-bench_reader}\" -d \"$DB_POSTGRES_DB\" \
+  -c \"\\\\copy (SELECT * FROM benchmark_source_${SUFFIX}) TO STDOUT (FORMAT binary)\" \
+  | PGPASSWORD=\"${DB_POSTGRES_WRITER_PASSWORD:-password}\" psql \
+  -h \"$DB_POSTGRES_HOST\" -p \"$DB_POSTGRES_PORT\" \
+  -U \"${DB_POSTGRES_WRITER_USER:-bench_writer}\" -d \"$DB_POSTGRES_DB\" \
+  -c \"\\\\copy ${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt}.native_bench_pg2pg FROM STDIN (FORMAT binary)\""
+
+run_native_benchmark "B13" "PostgreSQL → PostgreSQL" "$B13_SETUP" "$B13_RUN"
+
+# =============================================================================
+# B14: SQL Server → SQL Server (bcp binary out → bcp binary in)
+# Uses bench_reader for export, bench_writer for import
+# =============================================================================
+B14_SETUP="sqlcmd -C -S \"$DB_MSSQL_HOST,$DB_MSSQL_PORT\" -U \"${DB_MSSQL_WRITER_USER:-bench_writer}\" -P \"${DB_MSSQL_WRITER_PASSWORD:-BenchWriter1!}\" -Q \"IF OBJECT_ID('${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.native_bench_mssql2mssql', 'U') IS NOT NULL DROP TABLE ${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.native_bench_mssql2mssql; CREATE TABLE ${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.native_bench_mssql2mssql (id UNIQUEIDENTIFIER, name NVARCHAR(MAX), email NVARCHAR(MAX), amount DECIMAL(18,2), country NVARCHAR(MAX));\""
+
+B14_RUN="bcp \"SELECT * FROM master.dbo.benchmark_source_${SUFFIX}\" queryout /tmp/native_bench_mssql2mssql.bcp -n -u -S \"$DB_MSSQL_HOST,$DB_MSSQL_PORT\" -U \"${DB_MSSQL_READER_USER:-bench_reader}\" -P \"${DB_MSSQL_READER_PASSWORD:-BenchReader1!}\" && \
+bcp ${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.native_bench_mssql2mssql in /tmp/native_bench_mssql2mssql.bcp -n -u -S \"$DB_MSSQL_HOST,$DB_MSSQL_PORT\" -U \"${DB_MSSQL_WRITER_USER:-bench_writer}\" -P \"${DB_MSSQL_WRITER_PASSWORD:-BenchWriter1!}\""
+
+run_native_benchmark "B14" "SQL Server → SQL Server" "$B14_SETUP" "$B14_RUN"
+
+# =============================================================================
+# B15: Oracle → Oracle (sqlplus spool CSV → sqlldr into bench_writer schema)
+# Oracle sqlldr has no binary format; CSV is the native high-performance path
+# =============================================================================
+B15_SETUP="echo \"SET MARKUP CSV ON DELIMITER ',' QUOTE ON\" > /tmp/spool_ora2ora.sql && \
+echo \"SET FEEDBACK OFF\" >> /tmp/spool_ora2ora.sql && \
+echo \"SET HEADING OFF\" >> /tmp/spool_ora2ora.sql && \
+echo \"SET TRIMSPOOL ON\" >> /tmp/spool_ora2ora.sql && \
+echo \"SET PAGESIZE 0\" >> /tmp/spool_ora2ora.sql && \
+echo \"SPOOL /tmp/native_bench_ora2ora.csv\" >> /tmp/spool_ora2ora.sql && \
+echo \"SELECT RAWTOHEX(id) as id, name, email, amount, country FROM ${DB_ORACLE_USER_UPPER}.BENCHMARK_SOURCE_${SUFFIX_UPPER};\" >> /tmp/spool_ora2ora.sql && \
+echo \"SPOOL OFF\" >> /tmp/spool_ora2ora.sql && \
+echo \"EXIT;\" >> /tmp/spool_ora2ora.sql && \
+sqlplus -S \"${DB_ORACLE_READER_USER:-bench_reader}/${DB_ORACLE_READER_PASSWORD:-password}@//$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE\" @/tmp/spool_ora2ora.sql && \
+echo \"OPTIONS (SKIP=0)\" > /tmp/sqlldr_ora2ora.ctl && \
+echo \"LOAD DATA\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"INFILE '/tmp/native_bench_ora2ora.csv'\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"INTO TABLE ${DB_ORACLE_WRITER_UPPER}.NATIVE_BENCH_ORA2ORA\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '\\\"'\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"TRAILING NULLCOLS\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"(\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"  ID CHAR(36) \\\"HEXTORAW(REPLACE(:ID, '-', ''))\\\",\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"  NAME CHAR(255),\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"  EMAIL CHAR(255),\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"  AMOUNT DECIMAL EXTERNAL,\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"  COUNTRY CHAR(10)\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \")\" >> /tmp/sqlldr_ora2ora.ctl && \
+echo \"BEGIN\" > /tmp/setup_ora2ora.sql && \
+echo \"  EXECUTE IMMEDIATE 'DROP TABLE ${DB_ORACLE_WRITER_UPPER}.NATIVE_BENCH_ORA2ORA';\" >> /tmp/setup_ora2ora.sql && \
+echo \"EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;\" >> /tmp/setup_ora2ora.sql && \
+echo \"/\" >> /tmp/setup_ora2ora.sql && \
+echo \"CREATE TABLE ${DB_ORACLE_WRITER_UPPER}.NATIVE_BENCH_ORA2ORA (id RAW(16), name VARCHAR2(4000), email VARCHAR2(4000), amount NUMBER, country VARCHAR2(4000));\" >> /tmp/setup_ora2ora.sql && \
+echo \"EXIT;\" >> /tmp/setup_ora2ora.sql && \
+sqlplus -S \"${DB_ORACLE_WRITER_USER:-bench_writer}/${DB_ORACLE_WRITER_PASSWORD:-password}@//$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE\" @/tmp/setup_ora2ora.sql"
+
+B15_RUN="sqlldr userid=\"${DB_ORACLE_WRITER_USER:-bench_writer}/${DB_ORACLE_WRITER_PASSWORD:-password}@//$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE\" control=/tmp/sqlldr_ora2ora.ctl log=/tmp/sqlldr_ora2ora.log bad=/tmp/sqlldr_ora2ora.bad direct=true"
+
+run_native_benchmark "B15" "Oracle → Oracle" "$B15_SETUP" "$B15_RUN"
+
 
 # =============================================================================
 # Generate JSON report for native
@@ -318,10 +396,14 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
             echo ","
         fi
         first=false
+        mem_val="${bavg_mem:-0}"
+        if ! [[ "$mem_val" =~ ^[0-9]+$ ]]; then
+            mem_val="\"$mem_val\""
+        fi
         if [[ "$bavg" =~ ^[0-9]+$ ]]; then
-            printf '       "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "${bavg_mem:-0}"
+            printf '       "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "$mem_val"
         else
-            printf '       "%s": { "description": "%s", "avg_duration_ms": "%s", "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "${bavg_mem:-0}"
+            printf '       "%s": { "description": "%s", "avg_duration_ms": "%s", "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "$mem_val"
         fi
     done < "$RESULTS_CSV"
 
