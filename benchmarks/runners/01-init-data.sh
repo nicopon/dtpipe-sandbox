@@ -16,10 +16,10 @@ ARTIFACTS_DIR="$SCRIPT_DIR/../artifacts"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LIB_DIR="$SCRIPT_DIR/../lib"
 
-# Source le module de détection du runtime container (docker / podman)
+# Source the container runtime detection module (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
 
-# Initialiser le runtime
+# Initialize the runtime
 init_container_runtime || exit 1
 
 # Default values

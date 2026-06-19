@@ -8,9 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="$REPO_ROOT/lib"
+LIB_DIR="$REPO_ROOT/benchmarks/lib"
 
-# Source le module de détection du runtime container (docker / podman)
+# Source the container runtime detection module (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
 
 # Colors
@@ -64,35 +64,25 @@ is_container_healthy() {
 #       Also, `[[ -n "$result" ]] || true` prevents `set -e` from exiting when result is empty.
 is_db_ready() {
     local container=$1
-    local result=""
     case "$container" in
-           "dtpipe-integ-postgres")
-            result=$(container_exec "$container" pg_isready -U postgres >/dev/null 2>&1) || true
-             [[ -n "$result" ]] && return 0
-             return 1
-               ;;
-           "dtpipe-integ-mssql")
-               # Using sqlcmd inside the tools sidecar (shares networking via container-compose)
-            result=$(container_exec "dtpipe-integ-mssql-tools" /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password123!' -Q "SELECT 1" >/dev/null 2>&1) || true
-             [[ -n "$result" ]] && return 0
-             return 1
-               ;;
-           "dtpipe-integ-oracle")
-               # Oracle free has a healthcheck script or we can use sqlplus
-            result=$(container_exec "$container" bash -c "ls /usr/local/bin/healthcheck.sh" >/dev/null 2>&1) || true
-            if [[ -n "$result" ]]; then
-                result=$(container_exec "$container" /usr/local/bin/healthcheck.sh >/dev/null 2>&1) || true
-                 [[ -n "$result" ]] && return 0
-                 return 1
+        "dtpipe-integ-postgres")
+            container_exec "$container" pg_isready -U postgres >/dev/null 2>&1 && return 0 || return 1
+            ;;
+        "dtpipe-integ-mssql")
+            # Using sqlcmd inside the tools sidecar (shares networking via container-compose)
+            container_exec "dtpipe-integ-mssql-tools" /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password123!' -Q "SELECT 1" >/dev/null 2>&1 && return 0 || return 1
+            ;;
+        "dtpipe-integ-oracle")
+            # Oracle free has a healthcheck script or we can use sqlplus
+            if container_exec "$container" bash -c "ls /usr/local/bin/healthcheck.sh" >/dev/null 2>&1; then
+                container_exec "$container" /usr/local/bin/healthcheck.sh >/dev/null 2>&1 && return 0 || return 1
             else
-                result=$(container_exec "$container" sqlplus -L -S / as sysdba <<< "SELECT 1 FROM DUAL;" >/dev/null 2>&1) || true
-                 [[ -n "$result" ]] && return 0
-                 return 1
+                container_exec "$container" sqlplus -L -S / as sysdba <<< "SELECT 1 FROM DUAL;" >/dev/null 2>&1 && return 0 || return 1
             fi
-               ;;
-           *)
+            ;;
+        *)
             return 0 # Default to success for others
-               ;;
+            ;;
     esac
 }
 

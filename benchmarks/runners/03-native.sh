@@ -10,7 +10,7 @@ CONFIG_DIR="$SCRIPT_DIR/../config"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LIB_DIR="$SCRIPT_DIR/../lib"
 
-# Source le module de détection du runtime container (docker / podman)
+# Source the container runtime detection module (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
 init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"

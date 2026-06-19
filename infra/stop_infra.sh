@@ -7,9 +7,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="$REPO_ROOT/lib"
+LIB_DIR="$REPO_ROOT/benchmarks/lib"
 
-# Source le module de détection du runtime container (docker / podman)
+# Source the container runtime detection module (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
 
 # Colors

@@ -26,7 +26,7 @@ ARTIFACTS_DIR="$SCRIPT_DIR/artifacts"
 INFRA_DIR="$REPO_ROOT/infra"
 LIB_DIR="$SCRIPT_DIR/lib"
 
-# Source le module de détection du runtime container (docker / podman)
+# Source the container runtime detection module (docker / podman)
 source "$LIB_DIR/container-runtime.sh"
 
 # =============================================================================
