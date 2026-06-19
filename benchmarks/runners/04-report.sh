@@ -75,6 +75,31 @@ REPORT_FILE="$ARTIFACTS_DIR/reports/benchmark_report.md"
 REPORT_JSON="$ARTIFACTS_DIR/reports/benchmark_report.json"
 
 # =============================================================================
+# Retrieve tool versions from the benchmark-test container
+# =============================================================================
+VER_DTPIPE="Unknown"
+VER_PANDAS="Unknown"
+VER_SQLALCHEMY="Unknown"
+VER_MELTANO="Unknown"
+VER_SLING="Unknown"
+VER_INGESTR="Unknown"
+VER_PSQL="Unknown"
+VER_BCP="Unknown"
+VER_SQLPLUS="Unknown"
+
+if container_is_running "benchmark-test"; then
+    VER_DTPIPE=$(container_exec benchmark-test dtpipe --version 2>/dev/null | awk '{print $2}' || echo "Unknown")
+    VER_PANDAS=$(container_exec benchmark-test /opt/venv/pandas/bin/python3 -c "import pandas; print(pandas.__version__)" 2>/dev/null || echo "Unknown")
+    VER_SQLALCHEMY=$(container_exec benchmark-test /opt/venv/pandas/bin/python3 -c "import sqlalchemy; print(sqlalchemy.__version__)" 2>/dev/null || echo "Unknown")
+    VER_MELTANO=$(container_exec benchmark-test /opt/venv/meltano/bin/meltano --version 2>/dev/null | awk '{print $3}' || echo "Unknown")
+    VER_SLING=$(container_exec benchmark-test sling --version 2>/dev/null | awk '{print $2}' || echo "Unknown")
+    VER_INGESTR=$(container_exec benchmark-test ingestr --version 2>/dev/null | awk '{print $3}' || echo "Unknown")
+    VER_PSQL=$(container_exec benchmark-test psql --version 2>/dev/null | awk '{print $3}' || echo "Unknown")
+    VER_BCP=$(container_exec benchmark-test bcp -v 2>/dev/null | grep "Version:" | awk '{print $2}' || echo "Unknown")
+    VER_SQLPLUS=$(container_exec benchmark-test sqlplus -V 2>/dev/null | grep "Version" | awk '{print $2}' || echo "Unknown")
+fi
+
+# =============================================================================
 # Helper: Read benchmark results from a tool's JSON report
 # Args: tool_name
 # Returns: populates variables like <tool>_<bench_id>
@@ -316,6 +341,22 @@ HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
     echo ""
     echo "---"
     echo ""
+    echo "## Tool Versions"
+    echo ""
+    echo "| Tool | Version |"
+    echo "|:---|:---|"
+    echo "| dtpipe | ${VER_DTPIPE} |"
+    echo "| pandas | ${VER_PANDAS} |"
+    echo "| sqlalchemy | ${VER_SQLALCHEMY} |"
+    echo "| meltano | ${VER_MELTANO} |"
+    echo "| sling | ${VER_SLING} |"
+    echo "| ingestr | ${VER_INGESTR} |"
+    echo "| psql (PostgreSQL client) | ${VER_PSQL} |"
+    echo "| bcp (SQL Server client) | ${VER_BCP} |"
+    echo "| sqlplus (Oracle client) | ${VER_SQLPLUS} |"
+    echo ""
+    echo "---"
+    echo ""
     echo "## Comparative Table — Duration (avg ms)"
     echo ""
     echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
@@ -432,6 +473,15 @@ _generate_json_report() {
         --arg cpu "$HOST_CPU_MODEL" \
         --argjson cores "$cpu_cores_num" \
         --arg ram "$HOST_RAM" \
+        --arg ver_dtpipe "$VER_DTPIPE" \
+        --arg ver_pandas "$VER_PANDAS" \
+        --arg ver_sqlalchemy "$VER_SQLALCHEMY" \
+        --arg ver_meltano "$VER_MELTANO" \
+        --arg ver_sling "$VER_SLING" \
+        --arg ver_ingestr "$VER_INGESTR" \
+        --arg ver_psql "$VER_PSQL" \
+        --arg ver_bcp "$VER_BCP" \
+        --arg ver_sqlplus "$VER_SQLPLUS" \
         '{
             title: $title,
             configuration: {
@@ -444,6 +494,17 @@ _generate_json_report() {
                     cpu: $cpu,
                     cpu_cores: $cores,
                     ram: $ram
+                },
+                versions: {
+                    dtpipe: $ver_dtpipe,
+                    pandas: $ver_pandas,
+                    sqlalchemy: $ver_sqlalchemy,
+                    meltano: $ver_meltano,
+                    sling: $ver_sling,
+                    ingestr: $ver_ingestr,
+                    psql: $ver_psql,
+                    bcp: $ver_bcp,
+                    sqlplus: $ver_sqlplus
                 }
             },
             benchmarks: {}
