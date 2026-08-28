@@ -291,7 +291,13 @@ run_pipeline() {
         fi
 
         # 3. Execute meltano run inside container and capture timing
-        local cmd="meltano run $extractor $loader"
+        # --force: meltano refuses to start a pipeline whose State ID is already
+        # marked running, and only clears that mark after a ~5 minute stale timeout.
+        # An interrupted run (Ctrl-C, a killed benchmark) therefore poisons every
+        # following repetition of the same tap/target pair with "Another pipeline is
+        # already running". Each repetition here is independent by construction, so
+        # forcing is correct rather than merely convenient.
+        local cmd="meltano run --force $extractor $loader"
         local runner_script
         runner_script=$(mktemp)
         cat > "$runner_script" << 'RUNNER_HEADER'

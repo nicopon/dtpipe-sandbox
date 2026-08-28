@@ -112,6 +112,13 @@ by `run_pipeline` as environment variables at run time (`TAP_POSTGRES_SQLALCHEMY
 `TAP_CSV_FILES`, `TARGET_*_DESTINATION_PATH`…), so nothing is written to `meltano.yml`
 and the two must not drift into each other.
 
+`meltano run` is invoked with `--force`. Meltano refuses to start a pipeline whose
+State ID is already marked running and only clears that mark after a ~5 minute stale
+timeout, so a single interrupted run (Ctrl-C, a killed benchmark) poisons every
+following repetition of the same tap/target pair with *"Another pipeline is already
+running"*. Each repetition here is independent by construction, so forcing is correct
+rather than merely convenient — without it the suite is not restartable.
+
 Meltano 4.x takes the plugin type as an **option**: `meltano add --plugin-type extractor
 tap-postgres --install`. The 3.x positional form `meltano add extractor tap-postgres`
 now parses `extractor` as a plugin name and fails with *"Utility 'extractor' is not known
