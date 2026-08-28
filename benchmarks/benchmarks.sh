@@ -35,7 +35,7 @@ source "$LIB_DIR/container-runtime.sh"
 BENCHMARK_ROWS=1000000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"          # all | transfer | transform | B01 … B19 | comma-separated ids
-BENCHMARK_TOOL="all"           # all | dtpipe | pandas | meltano | sling | ingestr | native
+BENCHMARK_TOOL="all"           # all | one tool | comma-separated list
 SKIP_INFRA=false               # --skip-infra  → skip DB infrastructure startup
 CLEAN_ARTIFACTS=false          # --clean-artifacts → wipe tool output files before running
 INFRA_COMPOSE_FILE=""          # --infra-compose FILE → custom infra compose path
@@ -83,7 +83,10 @@ Options:
                           transform  B16-B19, the dtpipe-only transformer family
                           B07        a single benchmark
                           B16,B19    a comma-separated list
-  --tool NAME|all         Restrict to a single tool        (default: all)
+  --tool SELECTOR         Restrict which tools run          (default: all)
+                          all                every tool
+                          dtpipe             a single tool
+                          dtpipe,ingestr     a comma-separated list
                           Names: dtpipe pandas meltano sling ingestr native
   --skip-infra            Do not start DB infrastructure
                           (use when containers are already running)
@@ -102,6 +105,13 @@ Examples:
 
   # Single tool, single pipeline:
   ./benchmarks.sh --tool dtpipe --scope B01
+
+  # Baseline run for the performance gate: only dtpipe is compared, so measuring
+  # the competitors costs time and buys nothing (it is ~20 % of the full run):
+  ./benchmarks.sh --tool dtpipe
+
+  # Head-to-head against the closest competitor only:
+  ./benchmarks.sh --tool dtpipe,ingestr
 
   # Only the transformer family (dtpipe-only, no DB target needed):
   ./benchmarks.sh --tool dtpipe --scope transform
@@ -327,8 +337,23 @@ echo -e "${CYAN}═════════════════════�
 echo -e "${CYAN}  Step 2: Benchmarks${NC}"
 echo -e "${CYAN}══════════════════════════════════════${NC}"
 
-TOOLS=("dtpipe" "pandas" "meltano" "sling" "ingestr" "native")
-[[ "$BENCHMARK_TOOL" != "all" ]] && TOOLS=("$BENCHMARK_TOOL")
+ALL_TOOLS=("dtpipe" "pandas" "meltano" "sling" "ingestr" "native")
+if [[ "$BENCHMARK_TOOL" == "all" ]]; then
+    TOOLS=("${ALL_TOOLS[@]}")
+else
+    # Comma-separated list, same grammar as --scope. A typo used to degrade
+    # silently into "03-<typo>.sh not found - skipped", so validate instead.
+    IFS=',' read -ra TOOLS <<< "$BENCHMARK_TOOL"
+    for _t in "${TOOLS[@]}"; do
+        _known=false
+        for _k in "${ALL_TOOLS[@]}"; do [[ "$_t" == "$_k" ]] && _known=true; done
+        if [[ "$_known" != true ]]; then
+            echo -e "${RED}Unknown tool: '$_t'${NC}"
+            echo -e "${RED}Known tools: ${ALL_TOOLS[*]}${NC}"
+            exit 1
+        fi
+    done
+fi
 
 for tool in "${TOOLS[@]}"; do
     echo ""

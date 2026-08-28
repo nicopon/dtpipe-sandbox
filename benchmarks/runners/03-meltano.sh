@@ -84,6 +84,76 @@ echo -e "   Repetitions: $BENCHMARK_REPETITIONS"
 echo -e "   Scope: $BENCHMARK_SCOPE"
 echo ""
 
+# =============================================================================
+# Meltano project bootstrap - idempotent
+#
+# Why this exists: nothing else creates the project. The runner has always
+# assumed /bench/artifacts/meltano/meltano_project, and the Dockerfile cannot
+# create it because ../artifacts is bind-mounted over /bench/artifacts and would
+# shadow anything baked into the image. Without it every `meltano run` died with
+# "must be run inside a Meltano project" - which is why meltano reported 0
+# usable results out of 15 while still consuming run time.
+#
+# Only the project and its plugins are created here. Every plugin SETTING is
+# supplied by run_pipeline as environment variables at run time
+# (TAP_POSTGRES_SQLALCHEMY_URL, TAP_CSV_FILES, TARGET_*_DESTINATION_PATH...),
+# so there is deliberately no config written to meltano.yml.
+#
+# Plugin installation is best-effort per plugin: a hub variant that will not
+# install leaves that scenario failing, which the report already renders, rather
+# than aborting the whole tool.
+# =============================================================================
+MELTANO_PROJECT_PARENT="/bench/artifacts/meltano"
+MELTANO_PROJECT_DIR="$MELTANO_PROJECT_PARENT/meltano_project"
+MELTANO_ENV="export PATH=\"/opt/venv/meltano/bin:\${PATH}\"; export MELTANO_DISABLE_TRACKING=1; "
+
+MELTANO_EXTRACTORS=("tap-postgres" "tap-csv" "tap-mssql")
+MELTANO_LOADERS=("target-postgres" "target-parquet" "target-csv" "target-mssql")
+
+bootstrap_meltano_project() {
+    if container_exec benchmark-test test -f "$MELTANO_PROJECT_DIR/meltano.yml" 2>/dev/null; then
+        echo -e "${GREEN}Meltano project already present: $MELTANO_PROJECT_DIR${NC}"
+        return 0
+    fi
+
+    echo -e "${YELLOW}Bootstrapping Meltano project (first run - installs plugins, several minutes)...${NC}"
+    container_exec benchmark-test bash -c "mkdir -p '$MELTANO_PROJECT_PARENT'" || return 1
+
+    # The telemetry opt-out flag has been spelled both --no_usage_stats and
+    # --no-usage-stats across meltano versions; MELTANO_DISABLE_TRACKING covers
+    # both, so a rejected flag must not be what stops the bootstrap.
+    if ! container_exec benchmark-test bash -c \
+            "${MELTANO_ENV}cd '$MELTANO_PROJECT_PARENT' && meltano init meltano_project --no_usage_stats" >/dev/null 2>&1 \
+       && ! container_exec benchmark-test bash -c \
+            "${MELTANO_ENV}cd '$MELTANO_PROJECT_PARENT' && meltano init meltano_project" >/dev/null 2>&1; then
+        echo -e "${RED}meltano init failed - meltano will report no results.${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}  project created${NC}"
+
+    local kind plugin
+    for kind in extractor loader; do
+        local list=()
+        if [[ "$kind" == "extractor" ]]; then list=("${MELTANO_EXTRACTORS[@]}"); else list=("${MELTANO_LOADERS[@]}"); fi
+        for plugin in "${list[@]}"; do
+            echo -n "  adding $kind $plugin... "
+            # Meltano 4.x takes the plugin type as an OPTION, not a positional:
+            # `meltano add <type> <name>` (3.x) now reads <type> as a plugin name and
+            # fails with "Utility 'extractor' is not known to Meltano". --install is
+            # explicit so the step is not silently a no-op if the default ever flips.
+            if container_exec benchmark-test bash -c \
+                "${MELTANO_ENV}cd '$MELTANO_PROJECT_DIR' && meltano add --plugin-type $kind $plugin --install" >/dev/null 2>&1; then
+                echo -e "${GREEN}ok${NC}"
+            else
+                echo -e "${RED}failed (scenarios using it will report no result)${NC}"
+            fi
+        done
+    done
+    return 0
+}
+
+bootstrap_meltano_project || true
+
 # Warm-up: ensure meltano and its plugins are loaded before the first timed run
 echo -e "${YELLOW}Warming up meltano...${NC}"
 container_exec benchmark-test /opt/venv/meltano/bin/meltano --version > /dev/null 2>&1 || true

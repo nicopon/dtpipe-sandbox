@@ -98,6 +98,26 @@ documented in the runner — same source and sink, a filter that keeps every row
 identical `--compute` in B18 and B19, no column added or dropped. Changing any one of
 them without changing all four breaks the subtraction silently.
 
+### Meltano needs its project bootstrapped, and `meltano add` changed syntax in 4.x
+
+`03-meltano.sh` bootstraps `/bench/artifacts/meltano/meltano_project` itself, idempotently.
+Nothing else can: the Dockerfile cannot, because `../artifacts` is bind-mounted over
+`/bench/artifacts` and shadows anything baked into the image. Before that step existed,
+every `meltano run` died with *"must be run inside a Meltano project"* — meltano scored
+0 usable results out of 15 while still consuming run time, and the report showed it as
+`0`, which reads like a measurement rather than a missing setup.
+
+Only the project and its plugins are created there. Every plugin **setting** is supplied
+by `run_pipeline` as environment variables at run time (`TAP_POSTGRES_SQLALCHEMY_URL`,
+`TAP_CSV_FILES`, `TARGET_*_DESTINATION_PATH`…), so nothing is written to `meltano.yml`
+and the two must not drift into each other.
+
+Meltano 4.x takes the plugin type as an **option**: `meltano add --plugin-type extractor
+tap-postgres --install`. The 3.x positional form `meltano add extractor tap-postgres`
+now parses `extractor` as a plugin name and fails with *"Utility 'extractor' is not known
+to Meltano"*. Plugin installation is best-effort per plugin so a hub variant that will not
+install degrades that scenario rather than aborting the tool.
+
 ### `mem-watcher.sh` requires `init_container_runtime` first
 
 `lib/mem-watcher.sh` uses `$CONTAINER_CMD` directly (not the wrapper functions). Every script that sources it must call `init_container_runtime` beforehand. All `03-*.sh` scripts do this — maintain the pattern when adding new ones.
@@ -123,5 +143,7 @@ The default row count is declared in **ten** places (`benchmarks.sh`, `benchmark
 
 1. Create `benchmarks/docker/benchmark-<tool>/Dockerfile`
 2. Add the service to `benchmarks/config/docker-compose-benchmark.yml` with volume mounts `../artifacts:/bench/artifacts` and `../scripts:/bench/scripts`
-3. Create `benchmarks/03-<tool>.sh` — source `container-runtime.sh` + `mem-watcher.sh` + `stats.sh`, call `init_container_runtime`, record rows with `stats_record_result` / `stats_record_unavailable` and emit the report with `stats_json_benchmarks` so the tool lands on the same JSON schema as the others
-4. Add the tool to the `TOOLS` array in `benchmarks.sh` and the `tools` array in `04-report.sh`'s `_generate_json_report`
+3. Add it to `ALL_TOOLS` in `benchmarks.sh` — `--tool` validates against that list, so an
+   unlisted name is rejected rather than silently skipped.
+4. Create `benchmarks/03-<tool>.sh` — source `container-runtime.sh` + `mem-watcher.sh` + `stats.sh`, call `init_container_runtime`, record rows with `stats_record_result` / `stats_record_unavailable` and emit the report with `stats_json_benchmarks` so the tool lands on the same JSON schema as the others
+5. Add the tool to the `tools` array in `04-report.sh`'s `_generate_json_report`

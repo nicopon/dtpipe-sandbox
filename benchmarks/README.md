@@ -135,7 +135,7 @@ The script automatically:
 | `--rows NUM` | `1000000` | Number of source rows. Lower it to iterate on the suite, not to publish — see [Fixed cost](#fixed-cost-why-the-default-is-1-000-000-rows). |
 | `--repetitions NUM` | `3` | Runs per benchmark |
 | `--scope SELECTOR` | `all` | `all`, `transfer` (B01-B15), `transform` (B16-B19), one id (`B07`), or a comma-separated list (`B16,B19`) |
-| `--tool NAME`\|`all` | `all` | Single tool or all |
+| `--tool SELECTOR` | `all` | `all`, one tool (`dtpipe`), or a comma-separated list (`dtpipe,ingestr`). Unknown names are rejected. |
 | `--skip-infra` | _(off)_ | Skip DB infrastructure startup |
 | `--infra-compose FILE` | auto | Path to infra docker-compose file |
 | `--clean-artifacts` | _(off)_ | Wipe previous output files first |
@@ -155,6 +155,14 @@ The script automatically:
 
 # Single tool and pipeline (fast debug run):
 ./benchmarks.sh --tool dtpipe --scope B01 --rows 1000 --repetitions 1
+
+# Baseline run for the performance gate. The gate only ever compares dtpipe, so
+# measuring the competitors costs time and buys nothing — dtpipe is about 20 % of
+# a full run:
+./benchmarks.sh --tool dtpipe
+
+# Head-to-head against the closest competitor only:
+./benchmarks.sh --tool dtpipe,ingestr
 
 # Infrastructure already running, clean previous outputs:
 ./benchmarks.sh --skip-infra --clean-artifacts
@@ -327,6 +335,29 @@ process startup, and read cross-tool comparisons of *fast* scenarios with that i
 
 Lowering `--rows` for a quick iteration is fine and expected. Publishing numbers taken
 that way is not.
+
+### Choosing what to run
+
+The suite serves two jobs, and running the whole field for both is where the time
+goes. Measured share of a full run:
+
+| tool | share of measured time | wins (B01-B15) | usable results |
+|:---|---:|---:|---:|
+| pandas | 40 % | 1 | 14/15 |
+| sling | 29 % | 0 | 15/15 |
+| dtpipe | 20 % | — | 14/15 |
+| ingestr | 6 % | 6 | 11/15 |
+| native | 5 % | 7 | 9/15 |
+
+- **Regression gate** — `./benchmarks.sh --tool dtpipe`. The gate compares dtpipe
+  against its own past and reads no other tool, so the competitors are pure cost here.
+- **Comparative publication** — run the whole field. The tools that lose are what make
+  the wins mean anything, and `native` in particular is the cheapest row in the table
+  and the most informative: it is not a competitor but the floor, the answer to "how
+  much headroom is there".
+
+Prune on cost if you must, never on rank. Dropping a tool because it beats dtpipe
+somewhere turns a benchmark into a marketing table.
 
 ---
 
