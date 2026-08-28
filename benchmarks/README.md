@@ -62,7 +62,7 @@ selects the correct Oracle binary at build time based on `uname -m`.
 benchmarks/
 ├── benchmarks.sh                       # Main orchestrator (bash — Linux / macOS / Git Bash / WSL)
 ├── README.md                           # This file
-├── lib/                                # Utility library (container-runtime, mem-watcher)
+├── lib/                                # Utility library (container-runtime, mem-watcher, stats)
 ├── runners/                            # Tool-specific benchmark runners
 │    ├── 01-init-data.sh                # Source dataset generation & DB loading
 │    ├── 03-dtpipe.sh                   # dtpipe benchmark runner
@@ -71,7 +71,8 @@ benchmarks/
 │    ├── 03-sling.sh                    # Sling benchmark runner
 │    ├── 03-ingestr.sh                  # ingestr benchmark runner
 │    ├── 03-native.sh                   # Native tools benchmark runner
-│    └── 04-report.sh                   # Comparative report generator
+│    ├── 04-report.sh                   # Comparative report generator
+│    └── 05-compare-baseline.sh         # Macro performance gate (baseline comparison)
 ├── artifacts/                          # Intermediate results (git-ignored)
 │    ├── dtpipe/       dtpipe_report.json
 │    ├── pandas/       pandas_report.json
@@ -84,6 +85,8 @@ benchmarks/
 │    │    └── benchmark_report.json
 │    ├── source_data_<N>.parquet        (generated)
 │    └── source_data_<N>.csv            (generated)
+├── baselines/                          # Versioned reference reports for the gate
+│    └── macro_perf.json
 ├── config/
 │    ├── benchmark.env                   # DB connection defaults
 │    └── docker-compose-benchmark.yml   # Benchmark container definitions
@@ -131,7 +134,7 @@ The script automatically:
 |--------|---------|-------------|
 | `--rows NUM` | `250000` | Number of source rows |
 | `--repetitions NUM` | `3` | Runs per benchmark |
-| `--scope B01`…`all` | `all` | Single pipeline or all |
+| `--scope SELECTOR` | `all` | `all`, `transfer` (B01-B15), `transform` (B16-B19), one id (`B07`), or a comma-separated list (`B16,B19`) |
 | `--tool NAME`\|`all` | `all` | Single tool or all |
 | `--skip-infra` | _(off)_ | Skip DB infrastructure startup |
 | `--infra-compose FILE` | auto | Path to infra docker-compose file |
@@ -193,6 +196,46 @@ with realistic access constraints. Created automatically by `runners/01-init-dat
 Each tool uses its own table/file prefix to avoid conflicts:
 `dtpipe_*` · `pandas_*` · `meltano_*` · `sling_*` · `ingestr_*` · `native_*`
 
+### Transformation family (B16-B19) — dtpipe only
+
+| ID | Description | Source | Target |
+|----|-------------|--------|--------|
+| **B16** | Control, no transformer | `source_data_N.parquet` | `null:` |
+| **B17** | Columnar chain: `--fake` + `--filter` + `--mask` | `source_data_N.parquet` | `null:` |
+| **B18** | Row chain: `--compute` | `source_data_N.parquet` | `null:` |
+| **B19** | Mixed chain, forces a row↔columnar bridge | `source_data_N.parquet` | `null:` |
+
+B01-B15 are pure transfers: they measure how fast data moves between a source and a
+target. B16-B19 measure something the other fifteen cannot see — **what a transformer
+costs**. Writing to `null:` makes the sink a no-op, so the difference between two
+scenarios is transformation work and nothing else.
+
+There is no competitor column here, deliberately. The question these four answer is
+internal — regression over time, and one design decision (should `--compute` be
+vectorized?) — not how dtpipe places against another tool.
+
+The four are built to subtract from each other:
+
+```
+B17 - B16                    cost of the columnar transformers
+B18 - B16                    cost of the compute (JavaScript) in row mode
+(B19 - B17) - (B18 - B16)    cost of the extra row/columnar round trip
+```
+
+The control is what makes the other three subtract from something. Without B16 the
+remaining numbers are totals, and a total answers no question.
+
+What keeps the four comparable: same source and same sink; `country != ZZZ` is a
+simple filter (columnar fast path) that keeps every row, so all four carry the same
+row count end to end; the `--compute` in B18 and B19 is byte-identical and reads the
+untouched `email` column; no scenario adds or drops a column.
+
+Run just this family — no DB target is involved, so it is fast:
+
+```bash
+./benchmarks.sh --tool dtpipe --scope transform
+```
+
 ---
 
 ## Tool Limitations
@@ -230,6 +273,65 @@ The report can also be regenerated independently (e.g. after partial runs):
 ```bash
 ./runners/04-report.sh --rows 250000 --repetitions 3
 ```
+
+### Which statistic the report publishes
+
+Every benchmark is run N times and the report publishes three figures per scenario:
+
+| Figure | Where | Why |
+|:---|:---|:---|
+| **min** | headline duration table | The reference. Noise on a shared machine is one-sided — scheduling, page-cache warming and neighbour processes can only ever *add* time. The fastest run is therefore the closest estimate of the tool's own cost. |
+| avg | dispersion table | Kept for continuity with earlier reports. It integrates the noise the minimum excludes. |
+| sample stddev | dispersion table | The point of the whole thing: it says whether a 15 % gap is a regression or the machine breathing. |
+
+The standard deviation is the **sample** one (Bessel-corrected, n-1). With 3 to 5
+repetitions the uncorrected form understates dispersion by about 20 %, which would
+make the gate look sharper than it is.
+
+A difference between two figures smaller than their standard deviations is not a
+result. The report says so in its own Notes section, so a reader who only has the
+Markdown still has the rule.
+
+All of it is computed in `lib/stats.sh`, sourced by every `03-*.sh` runner — the
+runners no longer each carry their own arithmetic. The machine-readable JSON carries
+`min_duration_ms`, `avg_duration_ms`, `stddev_duration_ms`, `runs`,
+`avg_peak_mem_mb` and `min_peak_mem_mb` per benchmark.
+
+---
+
+## Performance Gate
+
+`runners/05-compare-baseline.sh` compares a fresh report against a versioned
+baseline in `baselines/` and renders a verdict — or refuses to.
+
+```bash
+# Record the current report as the reference
+./runners/05-compare-baseline.sh --update
+
+# Compare a later run against it
+./runners/05-compare-baseline.sh --threshold 15
+```
+
+### It refuses across machines, on purpose
+
+The baseline records the machine it was measured on (OS, architecture, CPU model,
+core count). When the current host does not match, the gate exits 2 and renders **no
+verdict at all**.
+
+That is not caution, it is correctness: comparing durations measured on different
+hardware does not give a weaker verdict, it gives a misleading one — most of the gap
+between the two numbers would be the machine, not the code. `--allow-foreign-host`
+overrides it, and then the threshold is clamped to no tighter than 50 %: enough to
+catch a factor, never presented as catching a +15 %.
+
+This is why the complete macro suite stays local. It needs Oracle and SQL Server in
+containers, which free CI runners cannot host — but the methodological reason stands
+on its own: a shared cloud runner has 20-50 % duration variance, so a 15 % gate there
+produces random red, not signal. The micro stage that *does* run in CI lives in the
+dtpipe repo (`tests/scripts/micro_perf_gate.sh`) and applies the same fingerprint
+rule with a deliberately wide threshold.
+
+Exit codes: `0` pass · `1` regression · `2` refused to render a verdict · `3` setup error.
 
 ---
 

@@ -14,6 +14,7 @@ LIB_DIR="$SCRIPT_DIR/../lib"
 source "$LIB_DIR/container-runtime.sh"
 init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"
+source "$LIB_DIR/stats.sh"
 
 # Default values
 BENCHMARK_ROWS=250000
@@ -159,39 +160,14 @@ RUNNER_FOOTER
         fi
     done
 
-     # Calculate average (excluding ERROR runs)
-    local sum=0
-    local count=0
-    for t in "${run_times[@]}"; do
-        if [[ "$t" != ERROR:* ]]; then
-            sum=$((sum + t))
-            count=$((count + 1))
-        fi
-    done
-
-    local avg=0
-    if [[ $count -gt 0 ]]; then
-        avg=$((sum / count))
-    fi
-
-    local mem_sum=0
-    local mem_count=0
-    for m in "${run_mem_peaks[@]+"${run_mem_peaks[@]}"}"; do
-        mem_sum=$((mem_sum + m))
-        mem_count=$((mem_count + 1))
-    done
-    local avg_mem=0
-    if [[ $mem_count -gt 0 ]]; then
-        avg_mem=$((mem_sum / mem_count))
-    fi
-
-    echo -e "   Average: ${avg} ms, peak memory delta: +${avg_mem} MiB ($count runs)"
-
-     # Store result
-    echo "$bench_id|$description|$avg|$avg_mem" >> "$RESULTS_CSV"
+    # Dispersion over the repetitions — min, avg and sample stddev (lib/stats.sh).
+    # min is the reference statistic for throughput: container scheduling noise
+    # can only ever make a run slower, never faster.
+    stats_record_result "$RESULTS_CSV" "$bench_id" "$description" \
+        ${run_times[@]+"${run_times[@]}"} -- ${run_mem_peaks[@]+"${run_mem_peaks[@]}"}
 
     # Verify target data matches source (run inside benchmark-test container)
-    if [[ "$avg" -ne 0 ]]; then
+    if [[ "$STATS_LAST_COUNT" -gt 0 ]]; then
         container_exec benchmark-test /opt/venv/pandas/bin/python3 /bench/scripts/verify_data.py "native" "$bench_id" "$BENCHMARK_ROWS" || true
     fi
 }
@@ -200,12 +176,12 @@ RUNNER_FOOTER
 # =============================================================================
 # B01: Parquet → PostgreSQL (Not natively supported)
 # =============================================================================
-echo "B01|Parquet → PostgreSQL|Not supported|N/A" >> "$RESULTS_CSV"
+stats_record_unavailable "$RESULTS_CSV" "B01" "Parquet → PostgreSQL" "Not supported"
 
 # =============================================================================
 # B02: PostgreSQL → Parquet (Not natively supported)
 # =============================================================================
-echo "B02|PostgreSQL → Parquet|Not supported|N/A" >> "$RESULTS_CSV"
+stats_record_unavailable "$RESULTS_CSV" "B02" "PostgreSQL → Parquet" "Not supported"
 
 # =============================================================================
 # B03: CSV → SQL Server (bcp in)
@@ -224,12 +200,12 @@ run_native_benchmark "B04" "SQL Server → CSV" "$B04_SETUP" "$B04_RUN"
 # =============================================================================
 # B05: Parquet → Oracle (Not natively supported)
 # =============================================================================
-echo "B05|Parquet → Oracle|Not supported|N/A" >> "$RESULTS_CSV"
+stats_record_unavailable "$RESULTS_CSV" "B05" "Parquet → Oracle" "Not supported"
 
 # =============================================================================
 # B06: Oracle → Parquet (Not natively supported)
 # =============================================================================
-echo "B06|Oracle → Parquet|Not supported|N/A" >> "$RESULTS_CSV"
+stats_record_unavailable "$RESULTS_CSV" "B06" "Oracle → Parquet" "Not supported"
 
 # =============================================================================
 # B07: CSV → PostgreSQL (psql \copy in)
@@ -249,12 +225,12 @@ run_native_benchmark "B08" "PostgreSQL → CSV" "$B08_SETUP" "$B08_RUN"
 # =============================================================================
 # B09: Parquet → SQL Server (Not natively supported)
 # =============================================================================
-echo "B09|Parquet → SQL Server|Not supported|N/A" >> "$RESULTS_CSV"
+stats_record_unavailable "$RESULTS_CSV" "B09" "Parquet → SQL Server" "Not supported"
 
 # =============================================================================
 # B10: SQL Server → Parquet (Not natively supported)
 # =============================================================================
-echo "B10|SQL Server → Parquet|Not supported|N/A" >> "$RESULTS_CSV"
+stats_record_unavailable "$RESULTS_CSV" "B10" "SQL Server → Parquet" "Not supported"
 
 # =============================================================================
 # B11: CSV → Oracle (sqlldr)
@@ -390,24 +366,7 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
     echo "     \"date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
     echo '     "benchmarks": {'
 
-    first=true
-    while IFS='|' read -r bid bdesc bavg bavg_mem; do
-        if [[ "$first" != true ]]; then
-            echo ","
-        fi
-        first=false
-        mem_val="${bavg_mem:-0}"
-        if ! [[ "$mem_val" =~ ^[0-9]+$ ]]; then
-            mem_val="\"$mem_val\""
-        fi
-        if [[ "$bavg" =~ ^[0-9]+$ ]]; then
-            printf '       "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "$mem_val"
-        else
-            printf '       "%s": { "description": "%s", "avg_duration_ms": "%s", "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "$mem_val"
-        fi
-    done < "$RESULTS_CSV"
-
-    echo ""
+    stats_json_benchmarks "$RESULTS_CSV" "       "
     echo '     }'
     echo "}"
 } > "$ARTIFACTS_DIR/native/native_report.json"

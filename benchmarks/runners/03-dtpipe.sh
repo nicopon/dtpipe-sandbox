@@ -16,6 +16,7 @@ LIB_DIR="$SCRIPT_DIR/../lib"
 source "$LIB_DIR/container-runtime.sh"
 init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"
+source "$LIB_DIR/stats.sh"
 
 # Default values
 BENCHMARK_ROWS=250000
@@ -98,13 +99,39 @@ container_exec benchmark-test dtpipe --version > /dev/null 2>&1 || true
 # Benchmark function: Execute a dtpipe pipeline N times and record timings
 # Writes a runner script into the container to avoid shell quoting issues
 # =============================================================================
+# Is this benchmark in scope? Accepts "all", the family keywords "transfer"
+# (B01-B15) and "transform" (B16-B19), or a comma-separated list of ids.
+_in_scope() {
+    local bench_id="$1"
+    case "$BENCHMARK_SCOPE" in
+        all)       return 0 ;;
+        transfer)  [[ "$bench_id" < "B16" ]] && return 0; return 1 ;;
+        transform) [[ "$bench_id" > "B15" ]] && return 0; return 1 ;;
+    esac
+    local entry
+    IFS=',' read -ra _scope_entries <<< "$BENCHMARK_SCOPE"
+    for entry in "${_scope_entries[@]}"; do
+        [[ "$entry" == "$bench_id" ]] && return 0
+    done
+    return 1
+}
+
+# run_pipeline [--no-verify] <bench_id> <description> <dtpipe args...>
+#   --no-verify : the pipeline has no inspectable target (null: sink), so the
+#                 source/target integrity check does not apply.
 run_pipeline() {
+    local verify=true
+    if [[ "${1:-}" == "--no-verify" ]]; then
+        verify=false
+        shift
+    fi
+
     local bench_id="$1"
     local description="$2"
     shift 2
 
        # Check if this benchmark should run based on scope
-    if [[ "$BENCHMARK_SCOPE" != "all" ]] && [[ "$BENCHMARK_SCOPE" != "$bench_id" ]]; then
+    if ! _in_scope "$bench_id"; then
         echo -e "${YELLOW}$bench_id: $description [SKIPPED - scope filter]${NC}"
         return
     fi
@@ -182,39 +209,14 @@ SCRIPT_FOOTER
         fi
     done
 
-       # Calculate average (excluding ERROR runs)
-    local sum=0
-    local count=0
-    for t in "${run_times[@]}"; do
-        if [[ "$t" != ERROR:* ]]; then
-            sum=$((sum + t))
-            count=$((count + 1))
-        fi
-    done
-
-    local avg=0
-    if [[ $count -gt 0 ]]; then
-        avg=$((sum / count))
-    fi
-
-    local mem_sum=0
-    local mem_count=0
-    for m in "${run_mem_peaks[@]+"${run_mem_peaks[@]}"}"; do
-        mem_sum=$((mem_sum + m))
-        mem_count=$((mem_count + 1))
-    done
-    local avg_mem=0
-    if [[ $mem_count -gt 0 ]]; then
-        avg_mem=$((mem_sum / mem_count))
-    fi
-
-    echo -e "   Average: ${avg} ms, peak memory delta: +${avg_mem} MiB ($count runs)"
-
-       # Store result
-    echo "$bench_id|$description|$avg|$avg_mem" >> "$RESULTS_CSV"
+    # Dispersion over the repetitions — min, avg and sample stddev (lib/stats.sh).
+    # min is the reference statistic for throughput: container scheduling noise
+    # can only ever make a run slower, never faster.
+    stats_record_result "$RESULTS_CSV" "$bench_id" "$description" \
+        ${run_times[@]+"${run_times[@]}"} -- ${run_mem_peaks[@]+"${run_mem_peaks[@]}"}
 
          # Verify target data matches source (run inside benchmark-test container)
-    if [[ "$avg" -ne 0 ]]; then
+    if [[ "$verify" == "true" ]] && [[ "$STATS_LAST_COUNT" -gt 0 ]]; then
         container_exec benchmark-test /opt/venv/pandas/bin/python3 /bench/scripts/verify_data.py "dtpipe" "$bench_id" "$BENCHMARK_ROWS" || true
     fi
 }
@@ -397,6 +399,81 @@ run_pipeline "B15" "Oracle → Oracle" \
 
 
 # =============================================================================
+# Transformation family — B16 to B19 · dtpipe only, no competitor
+#
+# Purpose: measure what a transformer costs, not what a target costs. Every
+# scenario reads the same Parquet source and writes to "null:", so the sink is
+# a no-op and the delta between two scenarios is transformation work alone.
+# There is no competitor column here on purpose: the question is internal
+# regression and one design decision (should --compute be vectorized?), not
+# how dtpipe places against sling.
+#
+# The four scenarios are built to subtract from each other:
+#
+#   B16  control, no transformer      → read + row materialization + null sink
+#   B17  columnar chain               → B16 + fake + filter + mask   (all Arrow)
+#   B18  row chain                    → B16 + compute                (row mode)
+#   B19  mixed chain                  → B17's three columnar transformers with
+#                                       B18's compute inserted between filter
+#                                       and mask, forcing a columnar → row →
+#                                       columnar round trip mid-pipeline
+#
+# Which yields:
+#   B17 - B16                       = cost of the columnar transformers
+#   B18 - B16                       = cost of the compute (JS) in row mode
+#   (B19 - B17) - (B18 - B16)       = cost of the extra row/columnar bridge,
+#                                     the figure that decides the vectorized
+#                                     compute bet
+#
+# The control is what makes the other three subtract from something. Without
+# B16 the three remaining numbers are only totals.
+#
+# Invariants that keep the four comparable:
+#   - identical source and identical sink;
+#   - "country != ZZZ" is a simple filter (columnar fast path) that keeps every
+#     row, so all four scenarios carry the same row count end to end;
+#   - the compute in B18 and B19 is byte-identical and reads the untouched
+#     email column (it runs before --mask in B19);
+#   - no scenario adds or drops a column, so the schema is constant.
+# =============================================================================
+
+DTPIPE_TRANSFORM_SOURCE="/bench/artifacts/source_data_${SUFFIX}.parquet"
+
+# B16: control — no transformer
+run_pipeline --no-verify "B16" "Parquet → null (control, no transformer)" \
+      --input "$DTPIPE_TRANSFORM_SOURCE" \
+      --output "null:" \
+      --no-schema-validation
+
+# B17: columnar chain — fake + filter + mask, all on the Arrow fast path
+run_pipeline --no-verify "B17" "Parquet → null (columnar chain: fake+filter+mask)" \
+      --input "$DTPIPE_TRANSFORM_SOURCE" \
+      --fake "name:name.fullName" \
+      --filter "country != ZZZ" \
+      --mask "email" \
+      --output "null:" \
+      --no-schema-validation
+
+# B18: row chain — compute alone, the whole stream runs in row mode
+run_pipeline --no-verify "B18" "Parquet → null (row chain: compute)" \
+      --input "$DTPIPE_TRANSFORM_SOURCE" \
+      --compute "email:row.email.toLowerCase()" \
+      --output "null:" \
+      --no-schema-validation
+
+# B19: mixed chain — same transformers as B17 and B18, arranged so the pipeline
+# is forced back and forth across the row/columnar boundary
+run_pipeline --no-verify "B19" "Parquet → null (mixed chain: forces row↔columnar bridge)" \
+      --input "$DTPIPE_TRANSFORM_SOURCE" \
+      --fake "name:name.fullName" \
+      --filter "country != ZZZ" \
+      --compute "email:row.email.toLowerCase()" \
+      --mask "email" \
+      --output "null:" \
+      --no-schema-validation
+
+
+# =============================================================================
 # Generate JSON report for dtpipe
 # =============================================================================
 echo ""
@@ -410,20 +487,7 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
     echo "        \"date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
     echo "        \"benchmarks\": {"
 
-    first=true
-    while IFS='|' read -r bid bdesc bavg bavg_mem; do
-        if [[ "$first" != "true" ]]; then
-            echo ","
-        fi
-        first=false
-        mem_val="${bavg_mem:-0}"
-        if ! [[ "$mem_val" =~ ^[0-9]+$ ]]; then
-            mem_val="\"$mem_val\""
-        fi
-        printf '            "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$bdesc" "$bavg" "$mem_val"
-    done < "$RESULTS_CSV"
-
-    echo ""
+    stats_json_benchmarks "$RESULTS_CSV" "            "
     echo "        }"
     echo "}"
 } > "$ARTIFACTS_DIR/dtpipe/dtpipe_report.json"

@@ -258,6 +258,55 @@ format_mem_row() {
     rm -f "$tmpfile"
 }
 
+# =============================================================================
+# Helper: Format a dispersion row — "avg ±sd (n)" per tool, unranked.
+# Args: benchmark_desc avg1 sd1 runs1 tool1 ... avgN sdN runsN toolN
+# Ranking is deliberately absent: this table exists to show how much noise sits
+# behind the reference figure, not to declare a winner.
+# =============================================================================
+format_dispersion_row() {
+    local desc="$1"
+    shift
+
+    local tmpfile
+    tmpfile=$(mktemp)
+
+    while [[ $# -gt 0 ]]; do
+        echo "$1|$2|$3" >> "$tmpfile"
+        shift 4
+    done
+
+    awk -v desc="$desc" '
+    BEGIN { n = 0 }
+    {
+        n++
+        split($0, parts, "|")
+        avgs[n] = parts[1]
+        sds[n]  = parts[2]
+        runs[n] = parts[3]
+    }
+    END {
+        printf "| %s", desc
+        for (i = 1; i <= n; i++) {
+            a = avgs[i]
+            if (a == "Not supported" || a == "Not implemented" || a == "N/A" || a == "" || a + 0 <= 0) {
+                printf " | —"
+                continue
+            }
+            if (sds[i] == "N/A" || sds[i] == "")
+                printf " | %d ms", a + 0
+            else if (runs[i] == "N/A" || runs[i] == "")
+                printf " | %d ±%.0f ms", a + 0, sds[i] + 0
+            else
+                printf " | %d ±%.0f ms (%d)", a + 0, sds[i] + 0, runs[i] + 0
+        }
+        printf " |\n"
+    }
+    ' "$tmpfile" 2>/dev/null
+
+    rm -f "$tmpfile"
+}
+
 read_tool_results() {
     local tool="$1"
     local json_file="$ARTIFACTS_DIR/$tool/${tool}_report.json"
@@ -267,14 +316,24 @@ read_tool_results() {
         return
     fi
 
-    # Parse JSON using jq and populate variables
+    # Parse JSON using jq and populate variables.
+    # min is the reference statistic (see the Statistics note in the report);
+    # avg and the sample stddev travel with it so dispersion stays visible.
     local benchmarks
-    benchmarks=$(jq -r '.benchmarks | to_entries[] | "\(.key)|\(.value.avg_duration_ms)|\(.value.avg_peak_mem_mb // "N/A")"' "$json_file" 2>/dev/null) || return
+    benchmarks=$(jq -r '.benchmarks | to_entries[] | "\(.key)|\(.value.avg_duration_ms)|\(.value.avg_peak_mem_mb // "N/A")|\(.value.min_duration_ms // "N/A")|\(.value.stddev_duration_ms // "N/A")|\(.value.runs // "N/A")"' "$json_file" 2>/dev/null) || return
 
-    while IFS='|' read -r key value mem; do
+    while IFS='|' read -r key value mem min_value sd_value runs_value; do
         [[ -z "$key" ]] && continue
+        # Reports produced before dispersion was added carry only avg_duration_ms;
+        # fall back to it so an older artifact still renders instead of blanking out.
+        [[ "$min_value" == "N/A" || "$min_value" == "null" ]] && min_value="$value"
+        [[ "$sd_value" == "null" ]] && sd_value="N/A"
+        [[ "$runs_value" == "null" ]] && runs_value="N/A"
         eval "${tool}_${key}=\"\$value\""
         eval "${tool}_mem_${key}=\"\$mem\""
+        eval "${tool}_min_${key}=\"\$min_value\""
+        eval "${tool}_sd_${key}=\"\$sd_value\""
+        eval "${tool}_runs_${key}=\"\$runs_value\""
     done <<< "$benchmarks"
 }
 
@@ -288,6 +347,16 @@ read_tool_results "native"
 
 # Define the benchmark IDs and descriptions
 BENCHMARK_IDS=("B01" "B02" "B03" "B04" "B05" "B06" "B07" "B08" "B09" "B10" "B11" "B12" "B13" "B14" "B15")
+
+# Transformation family — dtpipe only, no competitor column (see 03-dtpipe.sh).
+# Kept out of BENCHMARK_IDS so the comparative tables stay a like-for-like grid.
+TRANSFORM_IDS=("B16" "B17" "B18" "B19")
+TRANSFORM_DESCRIPTIONS=(
+       "Control — no transformer"
+       "Columnar chain — fake + filter + mask"
+       "Row chain — compute"
+       "Mixed chain — forces row↔columnar bridge"
+)
 BENCHMARK_DESCRIPTIONS=(
        "Parquet → PostgreSQL"
        "PostgreSQL → Parquet"
@@ -357,7 +426,11 @@ HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
     echo ""
     echo "---"
     echo ""
-    echo "## Comparative Table — Duration (avg ms)"
+    echo "## Comparative Table — Duration (min of $BENCHMARK_REPETITIONS runs, ms)"
+    echo ""
+    echo "> The fastest of the repetitions is the reference figure: scheduling noise,"
+    echo "> page-cache warming and neighbour processes can only ever add time to a run."
+    echo "> The dispersion table below says how much noise sits behind each figure."
     echo ""
     echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
     echo "|:---|:---:|:---:|:---:|:---:|:---:|:---:|"
@@ -367,12 +440,12 @@ HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
           bid="${BENCHMARK_IDS[$idx]}"
           bdesc="${BENCHMARK_DESCRIPTIONS[$idx]}"
 
-          eval "dtpipe_ms=\${dtpipe_${bid}:-N/A}"
-          eval "pandas_ms=\${pandas_${bid}:-N/A}"
-          eval "meltano_ms=\${meltano_${bid}:-N/A}"
-          eval "sling_ms=\${sling_${bid}:-N/A}"
-          eval "ingestr_ms=\${ingestr_${bid}:-N/A}"
-          eval "native_ms=\${native_${bid}:-N/A}"
+          eval "dtpipe_ms=\${dtpipe_min_${bid}:-N/A}"
+          eval "pandas_ms=\${pandas_min_${bid}:-N/A}"
+          eval "meltano_ms=\${meltano_min_${bid}:-N/A}"
+          eval "sling_ms=\${sling_min_${bid}:-N/A}"
+          eval "ingestr_ms=\${ingestr_min_${bid}:-N/A}"
+          eval "native_ms=\${native_min_${bid}:-N/A}"
 
           format_table_row --duration "$BENCHMARK_ROWS" "$bdesc" \
               "$dtpipe_ms" "dtpipe" \
@@ -381,6 +454,34 @@ HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
               "$sling_ms" "sling" \
               "$ingestr_ms" "ingestr" \
               "$native_ms" "native"
+      done
+
+    echo ""
+    echo "## Comparative Table — Dispersion (avg ± sample stddev, runs)"
+    echo ""
+    echo "> Read against the table above: a gap between two tools that is smaller than"
+    echo "> their standard deviations is not a result. \"—\" = not supported or not run."
+    echo ""
+    echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
+    echo "|:---|:---:|:---:|:---:|:---:|:---:|:---:|"
+
+      for idx in "${!BENCHMARK_IDS[@]}"; do
+          bid="${BENCHMARK_IDS[$idx]}"
+          bdesc="${BENCHMARK_DESCRIPTIONS[$idx]}"
+
+          for _t in dtpipe pandas meltano sling ingestr native; do
+              eval "${_t}_avg=\${${_t}_${bid}:-N/A}"
+              eval "${_t}_sd=\${${_t}_sd_${bid}:-N/A}"
+              eval "${_t}_runs=\${${_t}_runs_${bid}:-N/A}"
+          done
+
+          format_dispersion_row "$bdesc" \
+              "$dtpipe_avg" "$dtpipe_sd" "$dtpipe_runs" "dtpipe" \
+              "$pandas_avg" "$pandas_sd" "$pandas_runs" "pandas" \
+              "$meltano_avg" "$meltano_sd" "$meltano_runs" "meltano" \
+              "$sling_avg" "$sling_sd" "$sling_runs" "sling" \
+              "$ingestr_avg" "$ingestr_sd" "$ingestr_runs" "ingestr" \
+              "$native_avg" "$native_sd" "$native_runs" "native"
       done
 
     echo ""
@@ -415,6 +516,88 @@ HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
     echo ""
     echo "---"
     echo ""
+    echo "## Transformation Scenarios — dtpipe only (Parquet → null:)"
+    echo ""
+    echo "> These four measure what a **transformer** costs, not what a target costs:"
+    echo "> same Parquet source, \`null:\` sink, so the sink is a no-op and the delta"
+    echo "> between two scenarios is transformation work alone. No competitor column —"
+    echo "> the question here is internal regression and one design decision, not"
+    echo "> how dtpipe places against another tool."
+    echo ""
+    echo "| Scenario | min | avg ± sd | Peak mem (avg) |"
+    echo "|:---|:---:|:---:|:---:|"
+
+      _has_transform=false
+      for idx in "${!TRANSFORM_IDS[@]}"; do
+          bid="${TRANSFORM_IDS[$idx]}"
+          bdesc="${TRANSFORM_DESCRIPTIONS[$idx]}"
+          eval "t_min=\${dtpipe_min_${bid}:-N/A}"
+          eval "t_avg=\${dtpipe_${bid}:-N/A}"
+          eval "t_sd=\${dtpipe_sd_${bid}:-N/A}"
+          eval "t_runs=\${dtpipe_runs_${bid}:-N/A}"
+          eval "t_mem=\${dtpipe_mem_${bid}:-N/A}"
+
+          if [[ "$t_min" =~ ^[0-9]+$ ]] && [[ "$t_min" -gt 0 ]]; then
+              _has_transform=true
+              _disp="$t_avg ms"
+              [[ "$t_sd" =~ ^[0-9.]+$ ]] && _disp="$t_avg ± $t_sd ms"
+              [[ "$t_runs" =~ ^[0-9]+$ ]] && _disp="$_disp ($t_runs)"
+              echo "| **$bid** — $bdesc | ${t_min} ms | ${_disp} | ${t_mem} MiB |"
+          else
+              echo "| **$bid** — $bdesc | not run | — | — |"
+          fi
+      done
+
+    echo ""
+    if [[ "$_has_transform" == "true" ]]; then
+        echo "### What the four numbers decide"
+        echo ""
+        echo "Each scenario subtracts from the control, so the figures below are"
+        echo "transformation cost with read, materialization and sink removed."
+        echo ""
+        echo "| Quantity | Value |"
+        echo "|:---|:---:|"
+
+        _b16="${dtpipe_min_B16:-}"
+        _b17="${dtpipe_min_B17:-}"
+        _b18="${dtpipe_min_B18:-}"
+        _b19="${dtpipe_min_B19:-}"
+
+        _delta() {
+            # $1 - $2, printed as ms, or "—" when either side is missing
+            if [[ "$1" =~ ^[0-9]+$ ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "$(( $1 - $2 )) ms"
+            else
+                echo "—"
+            fi
+        }
+
+        echo "| Columnar chain (B17 − B16) | $(_delta "$_b17" "$_b16") |"
+        echo "| Row-mode compute (B18 − B16) | $(_delta "$_b18" "$_b16") |"
+        if [[ "$_b16" =~ ^[0-9]+$ ]] && [[ "$_b17" =~ ^[0-9]+$ ]] && \
+           [[ "$_b18" =~ ^[0-9]+$ ]] && [[ "$_b19" =~ ^[0-9]+$ ]]; then
+            _bridge=$(( (_b19 - _b17) - (_b18 - _b16) ))
+            _compute=$(( _b18 - _b16 ))
+            echo "| **Extra row↔columnar bridge** ((B19 − B17) − (B18 − B16)) | **${_bridge} ms** |"
+            echo ""
+            echo "The bet on a vectorized \`--compute\` is worth taking only if the mode"
+            echo "switch, not the JavaScript evaluation, is what costs. Vectorizing removes"
+            echo "the bridge; it does not remove a per-row script call."
+            echo ""
+            if [[ "$_compute" -gt 0 ]]; then
+                _ratio=$(awk -v b="$_bridge" -v c="$_compute" 'BEGIN { printf "%.0f", (b * 100.0) / c }')
+                echo "- Bridge as a share of the row-mode compute cost: **${_ratio} %**."
+            fi
+            echo "- Read this against the standard deviations above: a delta smaller than"
+            echo "  the dispersion of its terms is not a result."
+        else
+            echo "| **Extra row↔columnar bridge** ((B19 − B17) − (B18 − B16)) | — |"
+        fi
+        echo ""
+    fi
+
+    echo "---"
+    echo ""
     echo "## Detail by tool"
     echo ""
     
@@ -428,7 +611,13 @@ for _tool_name in dtpipe pandas meltano sling ingestr native; do
     echo ""
     _report_file="$ARTIFACTS_DIR/${_tool_name}/${_tool_name}_report.json"
     if [[ -f "$_report_file" ]]; then
-        jq -r '.benchmarks | to_entries[] | "- **\(.key)** (\(.value.description // "N/A")): \(.value.avg_duration_ms)\(.value.avg_duration_ms | if (. | tostring | ltrimstr("-") | test("^[0-9]+$")) then " ms" else "" end)"' "$_report_file" 2>/dev/null || echo "- Benchmark data not available"
+        jq -r '.benchmarks | to_entries[] | . as $e
+            | ($e.value.avg_duration_ms | tostring | ltrimstr("-") | test("^[0-9]+$")) as $numeric
+            | if $numeric | not then "- **\($e.key)** (\($e.value.description // "N/A")): \($e.value.avg_duration_ms)"
+              else "- **\($e.key)** (\($e.value.description // "N/A")): \($e.value.min_duration_ms // $e.value.avg_duration_ms) ms min · \($e.value.avg_duration_ms) ms avg"
+                   + (if ($e.value.stddev_duration_ms // null) != null then " ± \($e.value.stddev_duration_ms)" else "" end)
+                   + (if ($e.value.runs // null) != null then " over \($e.value.runs) runs" else "" end)
+              end' "$_report_file" 2>/dev/null || echo "- Benchmark data not available"
     else
         echo "- Benchmark data not available"
     fi
@@ -441,7 +630,22 @@ done
      echo ""
      echo "## Notes"
      echo ""
-     echo "- Measured times are averages over $BENCHMARK_REPETITIONS executions."
+     echo "### Statistics"
+     echo ""
+     echo "- Each benchmark is run $BENCHMARK_REPETITIONS times."
+     echo "- **Reference figure = the minimum.** Noise on a shared machine is one-sided:"
+     echo "  it can only make a run slower. The fastest run is therefore the closest"
+     echo "  estimate of the tool's own cost, and it is what the comparison gate uses."
+     echo "- The average is kept for continuity with earlier reports; the standard"
+     echo "  deviation is the **sample** one (Bessel-corrected, n-1) — with 3 to 5"
+     echo "  repetitions the uncorrected form understates dispersion by about 20 %."
+     echo "- A difference between two figures that is smaller than their standard"
+     echo "  deviations is noise, not a result."
+     echo "- The machine-readable JSON carries \`min_duration_ms\`, \`avg_duration_ms\`,"
+     echo "  \`stddev_duration_ms\`, \`runs\`, \`avg_peak_mem_mb\` and \`min_peak_mem_mb\`."
+     echo ""
+     echo "### Environment"
+     echo ""
      echo "- Benchmarks were run in isolated Docker containers."
      echo "- Nothing was installed on the host: all executions happen inside containers."
      echo ""
@@ -511,7 +715,7 @@ _generate_json_report() {
         }')
 
     # Benchmark descriptions
-    local bench_ids=("B01" "B02" "B03" "B04" "B05" "B06" "B07" "B08" "B09" "B10" "B11" "B12" "B13" "B14" "B15")
+    local bench_ids=("B01" "B02" "B03" "B04" "B05" "B06" "B07" "B08" "B09" "B10" "B11" "B12" "B13" "B14" "B15" "B16" "B17" "B18" "B19")
     local bench_descs=(
         "Parquet -> PostgreSQL"
         "PostgreSQL -> Parquet"
@@ -528,6 +732,10 @@ _generate_json_report() {
         "PostgreSQL -> PostgreSQL"
         "SQL Server -> SQL Server"
         "Oracle -> Oracle"
+        "Transform control -> null (no transformer)"
+        "Transform columnar chain -> null (fake+filter+mask)"
+        "Transform row chain -> null (compute)"
+        "Transform mixed chain -> null (row/columnar bridge)"
     )
 
     local tools=("dtpipe" "pandas" "meltano" "sling" "ingestr" "native")

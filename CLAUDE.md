@@ -35,11 +35,62 @@ container_compose -p "dtpipe-benchmark" -f docker-compose-benchmark.yml exec ...
 
 Forgetting this causes compose to fail silently or pick up the wrong compose file.
 
-### `jq` runs inside `benchmark-native`, not on the host
+### `jq` runs inside `benchmark-test`, not on the host
 
-`04-report.sh` defines a `jq()` shell function that proxies all `jq` calls through `docker exec -i benchmark-native jq`. The function also rewrites host paths (`$ARTIFACTS_DIR/...` → `/bench/artifacts/...`) since that directory is mounted in the container.
+`04-report.sh` defines a `jq()` shell function that proxies all `jq` calls through `docker exec -i benchmark-test jq` (`05-compare-baseline.sh` does the same with `jq_file`). The function also rewrites host paths (`$ARTIFACTS_DIR/...` → `/bench/artifacts/...`) since that directory is mounted in the container.
 
-Consequence: **`benchmark-native` must be running** when `04-report.sh` is called. `benchmarks.sh` guarantees this (it starts all containers before calling `04-report.sh`), but calling `./04-report.sh` in isolation requires `benchmark-native` to already be up.
+Consequence: **`benchmark-test` must be running** when `04-report.sh` is called. `benchmarks.sh` guarantees this (it starts all containers before calling `04-report.sh`), but calling `./04-report.sh` or `./05-compare-baseline.sh` in isolation requires `benchmark-test` to already be up.
+
+### `lib/stats.sh` owns the result row format — all seven scripts must agree
+
+Dispersion (min, average, sample stddev) and the result-row serialization live in
+`lib/stats.sh`, sourced by every `03-*.sh`. The runners no longer carry their own
+arithmetic, and they must not: the row written to `.tmp_results.csv` is a fixed
+8-field pipe-delimited record
+
+```
+bench_id|description|avg_ms|min_ms|stddev_ms|runs|avg_mem_mb|min_mem_mb
+```
+
+read back by `stats_json_benchmarks` and, downstream, by `04-report.sh` and
+`05-compare-baseline.sh`. Adding a field means touching all three ends. Use
+`stats_record_result` / `stats_record_unavailable` rather than echoing a row by hand.
+
+**The statistic that matters is the minimum, not the average.** Noise on a shared
+machine is one-sided — it can only make a run slower — so the fastest run is the
+closest estimate of the tool's own cost, and it is what the gate compares. The
+average is kept for continuity with published reports; the standard deviation is
+what makes a 15 % delta interpretable at all. It is the *sample* deviation (n-1):
+at 3-5 repetitions the uncorrected form understates dispersion by about 20 %.
+
+### `05-compare-baseline.sh` refuses rather than warns
+
+The macro gate compares a report against a versioned baseline in `baselines/`. When
+the host fingerprint (OS / arch / CPU model / core count, taken from the report's own
+`configuration.host`) does not match the baseline's, it exits 2 and renders **no
+verdict**. This is not caution: comparing durations across different hardware gives a
+misleading verdict, not a weaker one, because most of the gap is then the machine.
+`--allow-foreign-host` overrides it and clamps the threshold to ≥ 50 %.
+
+Do not "fix" this by downgrading the refusal to a warning. A warning next to a number
+gets read as a number.
+
+It obeys the host-dependency rule the same way `04-report.sh` does — jq runs inside
+`benchmark-test` — so **`benchmark-test` must be running** when the gate is invoked.
+
+### B16-B19 are dtpipe-only by design, and B16 is not padding
+
+`03-dtpipe.sh` carries a transformation family (Parquet → `null:`) that no competitor
+runner implements. That asymmetry is deliberate: B01-B15 ask "how does dtpipe place
+against the field", B16-B19 ask "what does a transformer cost", and the second
+question has no competitor in it.
+
+The control (B16, no transformer) is what lets the other three subtract from
+something. Removing it to save a few minutes turns the remaining three into totals,
+and a total answers no question. The comparability of the four rests on invariants
+documented in the runner — same source and sink, a filter that keeps every row, an
+identical `--compute` in B18 and B19, no column added or dropped. Changing any one of
+them without changing all four breaks the subtraction silently.
 
 ### `mem-watcher.sh` requires `init_container_runtime` first
 
@@ -64,5 +115,5 @@ B06, B08, B10, B12) fails with "table does not exist".
 
 1. Create `benchmarks/docker/benchmark-<tool>/Dockerfile`
 2. Add the service to `benchmarks/config/docker-compose-benchmark.yml` with volume mounts `../artifacts:/bench/artifacts` and `../scripts:/bench/scripts`
-3. Create `benchmarks/03-<tool>.sh` — source `container-runtime.sh` + `mem-watcher.sh`, call `init_container_runtime`, write results to `artifacts/<tool>/<tool>_report.json` using the same JSON schema as existing tools
+3. Create `benchmarks/03-<tool>.sh` — source `container-runtime.sh` + `mem-watcher.sh` + `stats.sh`, call `init_container_runtime`, record rows with `stats_record_result` / `stats_record_unavailable` and emit the report with `stats_json_benchmarks` so the tool lands on the same JSON schema as the others
 4. Add the tool to the `TOOLS` array in `benchmarks.sh` and the `tools` array in `04-report.sh`'s `_generate_json_report`

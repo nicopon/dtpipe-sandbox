@@ -34,7 +34,7 @@ source "$LIB_DIR/container-runtime.sh"
 # =============================================================================
 BENCHMARK_ROWS=250000
 BENCHMARK_REPETITIONS=3
-BENCHMARK_SCOPE="all"          # all | B01 … B15
+BENCHMARK_SCOPE="all"          # all | transfer | transform | B01 … B19 | comma-separated ids
 BENCHMARK_TOOL="all"           # all | dtpipe | pandas | meltano | sling | ingestr | native
 SKIP_INFRA=false               # --skip-infra  → skip DB infrastructure startup
 CLEAN_ARTIFACTS=false          # --clean-artifacts → wipe tool output files before running
@@ -77,7 +77,12 @@ runs all tool benchmarks and generates a comparative report.
 Options:
   --rows NUM              Number of source rows            (default: 250000)
   --repetitions NUM       Runs per benchmark               (default: 3)
-  --scope B01|...|all     Restrict to a single pipeline    (default: all)
+  --scope SELECTOR        Restrict which benchmarks run     (default: all)
+                          all        every benchmark
+                          transfer   B01-B15, the competitive transfers
+                          transform  B16-B19, the dtpipe-only transformer family
+                          B07        a single benchmark
+                          B16,B19    a comma-separated list
   --tool NAME|all         Restrict to a single tool        (default: all)
                           Names: dtpipe pandas meltano sling ingestr native
   --skip-infra            Do not start DB infrastructure
@@ -96,6 +101,9 @@ Examples:
 
   # Single tool, single pipeline:
   ./benchmarks.sh --tool dtpipe --scope B01
+
+  # Only the transformer family (dtpipe-only, no DB target needed):
+  ./benchmarks.sh --tool dtpipe --scope transform
 
   # Infrastructure already running, clean outputs:
   ./benchmarks.sh --skip-infra --clean-artifacts

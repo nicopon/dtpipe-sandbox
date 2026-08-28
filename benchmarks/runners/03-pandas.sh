@@ -17,6 +17,7 @@ LIB_DIR="$SCRIPT_DIR/../lib"
 source "$LIB_DIR/container-runtime.sh"
 init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"
+source "$LIB_DIR/stats.sh"
 
 # Default values
 BENCHMARK_ROWS=250000
@@ -120,39 +121,14 @@ run_python_benchmark() {
         fi
     done
 
-    # Calculate average (excluding ERROR runs)
-    local sum=0
-    local count=0
-    for t in "${run_times[@]}"; do
-        if [[ "$t" != ERROR:* ]]; then
-            sum=$((sum + t))
-            count=$((count + 1))
-        fi
-    done
-
-    local avg=0
-    if [[ $count -gt 0 ]]; then
-        avg=$((sum / count))
-    fi
-
-    local mem_sum=0
-    local mem_count=0
-    for m in "${run_mem_peaks[@]+"${run_mem_peaks[@]}"}"; do
-        mem_sum=$((mem_sum + m))
-        mem_count=$((mem_count + 1))
-    done
-    local avg_mem=0
-    if [[ $mem_count -gt 0 ]]; then
-        avg_mem=$((mem_sum / mem_count))
-    fi
-
-    echo -e "   Average: ${avg} ms, peak memory delta: +${avg_mem} MiB ($count runs)"
-
-    # Store result (append to same CSV, with pandas - sqlalchemy prefix)
-    echo "$bench_id|$description(pandas - sqlalchemy)|$avg|$avg_mem" >> "$RESULTS_CSV"
+    # Dispersion over the repetitions — min, avg and sample stddev (lib/stats.sh).
+    # min is the reference statistic for throughput: container scheduling noise
+    # can only ever make a run slower, never faster.
+    stats_record_result "$RESULTS_CSV" "$bench_id" "$description" \
+        ${run_times[@]+"${run_times[@]}"} -- ${run_mem_peaks[@]+"${run_mem_peaks[@]}"}
 
           # Verify target data matches source (run inside benchmark-test container)
-    if [[ "$avg" -ne 0 ]]; then
+    if [[ "$STATS_LAST_COUNT" -gt 0 ]]; then
         container_exec benchmark-test /opt/venv/pandas/bin/python3 /bench/scripts/verify_data.py "pandas" "$bench_id" "$BENCHMARK_ROWS" || true
     fi
 }
@@ -193,22 +169,7 @@ echo -e "${YELLOW}Generating JSON report...${NC}"
     echo "     \"date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
     echo '     "benchmarks": {'
 
-    first=true
-    while IFS='|' read -r bid bdesc bavg bavg_mem; do
-        if [[ "$first" != true ]]; then
-            echo ","
-        fi
-        first=false
-        # Clean up description (remove "(pandas - sqlalchemy)" suffix for display)
-        clean_desc=$(echo "$bdesc" | sed 's/(pandas - sqlalchemy)//')
-        mem_val="${bavg_mem:-0}"
-        if ! [[ "$mem_val" =~ ^[0-9]+$ ]]; then
-            mem_val="\"$mem_val\""
-        fi
-        printf '       "%s": { "description": "%s", "avg_duration_ms": %s, "avg_peak_mem_mb": %s }' "$bid" "$clean_desc" "$bavg" "$mem_val"
-    done < "$RESULTS_CSV"
-
-    echo ""
+    stats_json_benchmarks "$RESULTS_CSV" "       "
     echo '     }'
     echo "}"
 } > "$ARTIFACTS_DIR/pandas/pandas_report.json"

@@ -1,0 +1,969 @@
+{
+  "title": "Competitive Benchmark: dtpipe vs Pandas vs Meltano vs Sling vs Native",
+  "configuration": {
+    "benchmark_rows": 250000,
+    "repetitions": 5,
+    "date": "2026-08-28T06:12:37Z",
+    "host": {
+      "os": "Darwin",
+      "arch": "arm64",
+      "cpu": "Apple M5 Pro",
+      "cpu_cores": 18,
+      "ram": "64 GiB"
+    },
+    "versions": {
+      "dtpipe": "1.6.0+524a2a0e67270053b91f52982a10a1a70d7babac",
+      "pandas": "2.3.3",
+      "sqlalchemy": "2.0.52",
+      "meltano": "4.2.2",
+      "sling": "1.5.26",
+      "ingestr": "v1.1.40",
+      "psql": "14.24",
+      "bcp": "18.6.0002.1",
+      "sqlplus": "19.19.0.0.0"
+    }
+  },
+  "benchmarks": {
+    "B01": {
+      "description": "Parquet -> PostgreSQL",
+      "tools": {
+        "dtpipe": {
+          "description": "Parquet → PostgreSQL",
+          "avg_duration_ms": 1434,
+          "min_duration_ms": 1390,
+          "stddev_duration_ms": 81.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 249,
+          "min_peak_mem_mb": 231
+        },
+        "pandas": {
+          "description": "Parquet → PostgreSQL",
+          "avg_duration_ms": 2096,
+          "min_duration_ms": 2080,
+          "stddev_duration_ms": 18.4,
+          "runs": 5,
+          "avg_peak_mem_mb": 518,
+          "min_peak_mem_mb": 511
+        },
+        "meltano": {
+          "description": "Parquet → PostgreSQL",
+          "avg_duration_ms": "Not implemented",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "sling": {
+          "description": "Parquet → PostgreSQL",
+          "avg_duration_ms": 2297,
+          "min_duration_ms": 1634,
+          "stddev_duration_ms": 1351.7,
+          "runs": 5,
+          "avg_peak_mem_mb": 138,
+          "min_peak_mem_mb": 113
+        },
+        "ingestr": {
+          "description": "Parquet → PostgreSQL",
+          "avg_duration_ms": 470,
+          "min_duration_ms": 439,
+          "stddev_duration_ms": 31.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 141,
+          "min_peak_mem_mb": 126
+        },
+        "native": {
+          "description": "Parquet → PostgreSQL",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        }
+      }
+    },
+    "B02": {
+      "description": "PostgreSQL -> Parquet",
+      "tools": {
+        "dtpipe": {
+          "description": "PostgreSQL → Parquet",
+          "avg_duration_ms": 1178,
+          "min_duration_ms": 1143,
+          "stddev_duration_ms": 31.3,
+          "runs": 5,
+          "avg_peak_mem_mb": 224,
+          "min_peak_mem_mb": 209
+        },
+        "pandas": {
+          "description": "PostgreSQL → Parquet",
+          "avg_duration_ms": 928,
+          "min_duration_ms": 920,
+          "stddev_duration_ms": 7.2,
+          "runs": 5,
+          "avg_peak_mem_mb": 281,
+          "min_peak_mem_mb": 264
+        },
+        "meltano": {
+          "description": "PostgreSQL → Parquet",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "sling": {
+          "description": "PostgreSQL → Parquet",
+          "avg_duration_ms": 2247,
+          "min_duration_ms": 2199,
+          "stddev_duration_ms": 50.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 190,
+          "min_peak_mem_mb": 189
+        },
+        "ingestr": {
+          "description": "PostgreSQL → Parquet",
+          "avg_duration_ms": 421,
+          "min_duration_ms": 409,
+          "stddev_duration_ms": 9.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 147,
+          "min_peak_mem_mb": 135
+        },
+        "native": {
+          "description": "PostgreSQL → Parquet",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        }
+      }
+    },
+    "B03": {
+      "description": "CSV -> SQL Server",
+      "tools": {
+        "dtpipe": {
+          "description": "CSV → SQL Server",
+          "avg_duration_ms": 2403,
+          "min_duration_ms": 2322,
+          "stddev_duration_ms": 76.6,
+          "runs": 5,
+          "avg_peak_mem_mb": 238,
+          "min_peak_mem_mb": 230
+        },
+        "pandas": {
+          "description": "CSV → SQL Server",
+          "avg_duration_ms": 21644,
+          "min_duration_ms": 21409,
+          "stddev_duration_ms": 178.5,
+          "runs": 5,
+          "avg_peak_mem_mb": 352,
+          "min_peak_mem_mb": 331
+        },
+        "meltano": {
+          "description": "CSV → SQL Server",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "sling": {
+          "description": "CSV → SQL Server",
+          "avg_duration_ms": 6049,
+          "min_duration_ms": 5832,
+          "stddev_duration_ms": 354.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 112,
+          "min_peak_mem_mb": 100
+        },
+        "ingestr": {
+          "description": "CSV → SQL Server",
+          "avg_duration_ms": 1568,
+          "min_duration_ms": 1509,
+          "stddev_duration_ms": 70.3,
+          "runs": 5,
+          "avg_peak_mem_mb": 205,
+          "min_peak_mem_mb": 184
+        },
+        "native": {
+          "description": "CSV → SQL Server",
+          "avg_duration_ms": 3398,
+          "min_duration_ms": 3348,
+          "stddev_duration_ms": 37.5,
+          "runs": 5,
+          "avg_peak_mem_mb": 3,
+          "min_peak_mem_mb": 2
+        }
+      }
+    },
+    "B04": {
+      "description": "SQL Server -> CSV",
+      "tools": {
+        "dtpipe": {
+          "description": "SQL Server → CSV",
+          "avg_duration_ms": 1263,
+          "min_duration_ms": 1197,
+          "stddev_duration_ms": 52.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 213,
+          "min_peak_mem_mb": 203
+        },
+        "pandas": {
+          "description": "SQL Server → CSV",
+          "avg_duration_ms": 1862,
+          "min_duration_ms": 1842,
+          "stddev_duration_ms": 17.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 218,
+          "min_peak_mem_mb": 215
+        },
+        "meltano": {
+          "description": "SQL Server → CSV",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "sling": {
+          "description": "SQL Server → CSV",
+          "avg_duration_ms": 4556,
+          "min_duration_ms": 4390,
+          "stddev_duration_ms": 142.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 55,
+          "min_peak_mem_mb": 50
+        },
+        "ingestr": {
+          "description": "SQL Server → CSV",
+          "avg_duration_ms": 1064,
+          "min_duration_ms": 1013,
+          "stddev_duration_ms": 62.3,
+          "runs": 5,
+          "avg_peak_mem_mb": 134,
+          "min_peak_mem_mb": 105
+        },
+        "native": {
+          "description": "SQL Server → CSV",
+          "avg_duration_ms": 703,
+          "min_duration_ms": 687,
+          "stddev_duration_ms": 15.2,
+          "runs": 5,
+          "avg_peak_mem_mb": 4,
+          "min_peak_mem_mb": 0
+        }
+      }
+    },
+    "B05": {
+      "description": "Parquet -> Oracle",
+      "tools": {
+        "dtpipe": {
+          "description": "Parquet → Oracle",
+          "avg_duration_ms": 1973,
+          "min_duration_ms": 1918,
+          "stddev_duration_ms": 82.5,
+          "runs": 5,
+          "avg_peak_mem_mb": 314,
+          "min_peak_mem_mb": 272
+        },
+        "pandas": {
+          "description": "Parquet → Oracle",
+          "avg_duration_ms": 4085,
+          "min_duration_ms": 3760,
+          "stddev_duration_ms": 605.5,
+          "runs": 5,
+          "avg_peak_mem_mb": 529,
+          "min_peak_mem_mb": 503
+        },
+        "meltano": {
+          "description": "Parquet → Oracle",
+          "avg_duration_ms": "Not implemented",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "sling": {
+          "description": "Parquet → Oracle",
+          "avg_duration_ms": 3791,
+          "min_duration_ms": 3529,
+          "stddev_duration_ms": 353.4,
+          "runs": 5,
+          "avg_peak_mem_mb": 158,
+          "min_peak_mem_mb": 139
+        },
+        "ingestr": {
+          "description": "Parquet → Oracle",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "native": {
+          "description": "Parquet → Oracle",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        }
+      }
+    },
+    "B06": {
+      "description": "Oracle -> Parquet",
+      "tools": {
+        "dtpipe": {
+          "description": "Oracle → Parquet",
+          "avg_duration_ms": 1537,
+          "min_duration_ms": 1506,
+          "stddev_duration_ms": 35.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 238,
+          "min_peak_mem_mb": 232
+        },
+        "pandas": {
+          "description": "Oracle → Parquet",
+          "avg_duration_ms": 674,
+          "min_duration_ms": 655,
+          "stddev_duration_ms": 22.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 226,
+          "min_peak_mem_mb": 212
+        },
+        "meltano": {
+          "description": "Oracle → Parquet",
+          "avg_duration_ms": "Not implemented",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "sling": {
+          "description": "Oracle → Parquet",
+          "avg_duration_ms": 2166,
+          "min_duration_ms": 2077,
+          "stddev_duration_ms": 88.4,
+          "runs": 5,
+          "avg_peak_mem_mb": 228,
+          "min_peak_mem_mb": 223
+        },
+        "ingestr": {
+          "description": "Oracle → Parquet",
+          "avg_duration_ms": 732,
+          "min_duration_ms": 670,
+          "stddev_duration_ms": 129.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 125,
+          "min_peak_mem_mb": 115
+        },
+        "native": {
+          "description": "Oracle → Parquet",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        }
+      }
+    },
+    "B07": {
+      "description": "CSV -> PostgreSQL",
+      "tools": {
+        "dtpipe": {
+          "description": "CSV → PostgreSQL",
+          "avg_duration_ms": 1355,
+          "min_duration_ms": 1271,
+          "stddev_duration_ms": 61.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 171,
+          "min_peak_mem_mb": 171
+        },
+        "pandas": {
+          "description": "CSV → PostgreSQL",
+          "avg_duration_ms": 2148,
+          "min_duration_ms": 2118,
+          "stddev_duration_ms": 24.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 347,
+          "min_peak_mem_mb": 334
+        },
+        "meltano": {
+          "description": "CSV → PostgreSQL",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "sling": {
+          "description": "CSV → PostgreSQL",
+          "avg_duration_ms": 1281,
+          "min_duration_ms": 1210,
+          "stddev_duration_ms": 61.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 45,
+          "min_peak_mem_mb": 43
+        },
+        "ingestr": {
+          "description": "CSV → PostgreSQL",
+          "avg_duration_ms": 660,
+          "min_duration_ms": 609,
+          "stddev_duration_ms": 65,
+          "runs": 5,
+          "avg_peak_mem_mb": 162,
+          "min_peak_mem_mb": 157
+        },
+        "native": {
+          "description": "CSV → PostgreSQL",
+          "avg_duration_ms": 217,
+          "min_duration_ms": 213,
+          "stddev_duration_ms": 6,
+          "runs": 5,
+          "avg_peak_mem_mb": 2,
+          "min_peak_mem_mb": 2
+        }
+      }
+    },
+    "B08": {
+      "description": "PostgreSQL -> CSV",
+      "tools": {
+        "dtpipe": {
+          "description": "PostgreSQL → CSV",
+          "avg_duration_ms": 1292,
+          "min_duration_ms": 1256,
+          "stddev_duration_ms": 31.5,
+          "runs": 5,
+          "avg_peak_mem_mb": 211,
+          "min_peak_mem_mb": 202
+        },
+        "pandas": {
+          "description": "PostgreSQL → CSV",
+          "avg_duration_ms": 1201,
+          "min_duration_ms": 1188,
+          "stddev_duration_ms": 26.5,
+          "runs": 5,
+          "avg_peak_mem_mb": 248,
+          "min_peak_mem_mb": 246
+        },
+        "meltano": {
+          "description": "PostgreSQL → CSV",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "sling": {
+          "description": "PostgreSQL → CSV",
+          "avg_duration_ms": 3012,
+          "min_duration_ms": 2950,
+          "stddev_duration_ms": 51.2,
+          "runs": 5,
+          "avg_peak_mem_mb": 52,
+          "min_peak_mem_mb": 45
+        },
+        "ingestr": {
+          "description": "PostgreSQL → CSV",
+          "avg_duration_ms": 653,
+          "min_duration_ms": 630,
+          "stddev_duration_ms": 30,
+          "runs": 5,
+          "avg_peak_mem_mb": 102,
+          "min_peak_mem_mb": 91
+        },
+        "native": {
+          "description": "PostgreSQL → CSV",
+          "avg_duration_ms": 76,
+          "min_duration_ms": 75,
+          "stddev_duration_ms": 1.5,
+          "runs": 5,
+          "avg_peak_mem_mb": 1,
+          "min_peak_mem_mb": 0
+        }
+      }
+    },
+    "B09": {
+      "description": "Parquet -> SQL Server",
+      "tools": {
+        "dtpipe": {
+          "description": "Parquet → SQL Server",
+          "avg_duration_ms": 2288,
+          "min_duration_ms": 2219,
+          "stddev_duration_ms": 81.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 284,
+          "min_peak_mem_mb": 282
+        },
+        "pandas": {
+          "description": "Parquet → SQL Server",
+          "avg_duration_ms": 22309,
+          "min_duration_ms": 22051,
+          "stddev_duration_ms": 153.3,
+          "runs": 5,
+          "avg_peak_mem_mb": 523,
+          "min_peak_mem_mb": 490
+        },
+        "meltano": {
+          "description": "Parquet → SQL Server",
+          "avg_duration_ms": "Not implemented",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "sling": {
+          "description": "Parquet → SQL Server",
+          "avg_duration_ms": 5742,
+          "min_duration_ms": 5230,
+          "stddev_duration_ms": 303.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 177,
+          "min_peak_mem_mb": 170
+        },
+        "ingestr": {
+          "description": "Parquet → SQL Server",
+          "avg_duration_ms": 1214,
+          "min_duration_ms": 1186,
+          "stddev_duration_ms": 49.5,
+          "runs": 5,
+          "avg_peak_mem_mb": 174,
+          "min_peak_mem_mb": 170
+        },
+        "native": {
+          "description": "Parquet → SQL Server",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        }
+      }
+    },
+    "B10": {
+      "description": "SQL Server -> Parquet",
+      "tools": {
+        "dtpipe": {
+          "description": "SQL Server → Parquet",
+          "avg_duration_ms": 1267,
+          "min_duration_ms": 1204,
+          "stddev_duration_ms": 48.7,
+          "runs": 5,
+          "avg_peak_mem_mb": 226,
+          "min_peak_mem_mb": 214
+        },
+        "pandas": {
+          "description": "SQL Server → Parquet",
+          "avg_duration_ms": 1567,
+          "min_duration_ms": 1535,
+          "stddev_duration_ms": 21.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 223,
+          "min_peak_mem_mb": 206
+        },
+        "meltano": {
+          "description": "SQL Server → Parquet",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "sling": {
+          "description": "SQL Server → Parquet",
+          "avg_duration_ms": 3617,
+          "min_duration_ms": 3520,
+          "stddev_duration_ms": 81.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 176,
+          "min_peak_mem_mb": 158
+        },
+        "ingestr": {
+          "description": "SQL Server → Parquet",
+          "avg_duration_ms": 968,
+          "min_duration_ms": 958,
+          "stddev_duration_ms": 8.6,
+          "runs": 5,
+          "avg_peak_mem_mb": 181,
+          "min_peak_mem_mb": 160
+        },
+        "native": {
+          "description": "SQL Server → Parquet",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        }
+      }
+    },
+    "B11": {
+      "description": "CSV -> Oracle",
+      "tools": {
+        "dtpipe": {
+          "description": "CSV → Oracle",
+          "avg_duration_ms": 1516,
+          "min_duration_ms": 1498,
+          "stddev_duration_ms": 28.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 269,
+          "min_peak_mem_mb": 264
+        },
+        "pandas": {
+          "description": "CSV → Oracle",
+          "avg_duration_ms": 3705,
+          "min_duration_ms": 3313,
+          "stddev_duration_ms": 251.2,
+          "runs": 5,
+          "avg_peak_mem_mb": 379,
+          "min_peak_mem_mb": 370
+        },
+        "meltano": {
+          "description": "CSV → Oracle",
+          "avg_duration_ms": "Not implemented",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "sling": {
+          "description": "CSV → Oracle",
+          "avg_duration_ms": 3594,
+          "min_duration_ms": 3546,
+          "stddev_duration_ms": 46.6,
+          "runs": 5,
+          "avg_peak_mem_mb": 74,
+          "min_peak_mem_mb": 68
+        },
+        "ingestr": {
+          "description": "CSV → Oracle",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "native": {
+          "description": "CSV → Oracle",
+          "avg_duration_ms": 315,
+          "min_duration_ms": 293,
+          "stddev_duration_ms": 25.2,
+          "runs": 5,
+          "avg_peak_mem_mb": 16,
+          "min_peak_mem_mb": 15
+        }
+      }
+    },
+    "B12": {
+      "description": "Oracle -> CSV",
+      "tools": {
+        "dtpipe": {
+          "description": "Oracle → CSV",
+          "avg_duration_ms": 1349,
+          "min_duration_ms": 1263,
+          "stddev_duration_ms": 82.7,
+          "runs": 5,
+          "avg_peak_mem_mb": 212,
+          "min_peak_mem_mb": 199
+        },
+        "pandas": {
+          "description": "Oracle → CSV",
+          "avg_duration_ms": 942,
+          "min_duration_ms": 932,
+          "stddev_duration_ms": 9.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 199,
+          "min_peak_mem_mb": 191
+        },
+        "meltano": {
+          "description": "Oracle → CSV",
+          "avg_duration_ms": "Not implemented",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "sling": {
+          "description": "Oracle → CSV",
+          "avg_duration_ms": 3014,
+          "min_duration_ms": 2951,
+          "stddev_duration_ms": 58.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 110,
+          "min_peak_mem_mb": 106
+        },
+        "ingestr": {
+          "description": "Oracle → CSV",
+          "avg_duration_ms": 737,
+          "min_duration_ms": 692,
+          "stddev_duration_ms": 37.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 66,
+          "min_peak_mem_mb": 57
+        },
+        "native": {
+          "description": "Oracle → CSV",
+          "avg_duration_ms": 608,
+          "min_duration_ms": 581,
+          "stddev_duration_ms": 32.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 30,
+          "min_peak_mem_mb": 22
+        }
+      }
+    },
+    "B13": {
+      "description": "PostgreSQL -> PostgreSQL",
+      "tools": {
+        "dtpipe": {
+          "description": "PostgreSQL → PostgreSQL",
+          "avg_duration_ms": 1419,
+          "min_duration_ms": 1378,
+          "stddev_duration_ms": 48.4,
+          "runs": 5,
+          "avg_peak_mem_mb": 187,
+          "min_peak_mem_mb": 184
+        },
+        "pandas": {
+          "description": "PostgreSQL → PostgreSQL",
+          "avg_duration_ms": 2961,
+          "min_duration_ms": 2935,
+          "stddev_duration_ms": 34.6,
+          "runs": 5,
+          "avg_peak_mem_mb": 390,
+          "min_peak_mem_mb": 387
+        },
+        "meltano": {
+          "description": "PostgreSQL → PostgreSQL",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "sling": {
+          "description": "PostgreSQL → PostgreSQL",
+          "avg_duration_ms": 1367,
+          "min_duration_ms": 1284,
+          "stddev_duration_ms": 74.3,
+          "runs": 5,
+          "avg_peak_mem_mb": 46,
+          "min_peak_mem_mb": 44
+        },
+        "ingestr": {
+          "description": "PostgreSQL → PostgreSQL",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "native": {
+          "description": "PostgreSQL → PostgreSQL",
+          "avg_duration_ms": 102,
+          "min_duration_ms": 101,
+          "stddev_duration_ms": 0.9,
+          "runs": 5,
+          "avg_peak_mem_mb": 1,
+          "min_peak_mem_mb": 0
+        }
+      }
+    },
+    "B14": {
+      "description": "SQL Server -> SQL Server",
+      "tools": {
+        "dtpipe": {
+          "description": "SQL Server → SQL Server",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "pandas": {
+          "description": "SQL Server → SQL Server",
+          "avg_duration_ms": 0,
+          "min_duration_ms": 0,
+          "stddev_duration_ms": 0,
+          "runs": 0,
+          "avg_peak_mem_mb": 0,
+          "min_peak_mem_mb": 0
+        },
+        "meltano": {
+          "description": "SQL Server → SQL Server",
+          "avg_duration_ms": "Not implemented",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "sling": {
+          "description": "SQL Server → SQL Server",
+          "avg_duration_ms": 5964,
+          "min_duration_ms": 5882,
+          "stddev_duration_ms": 98.7,
+          "runs": 5,
+          "avg_peak_mem_mb": 92,
+          "min_peak_mem_mb": 56
+        },
+        "ingestr": {
+          "description": "SQL Server → SQL Server",
+          "avg_duration_ms": 1393,
+          "min_duration_ms": 1379,
+          "stddev_duration_ms": 18.7,
+          "runs": 5,
+          "avg_peak_mem_mb": 162,
+          "min_peak_mem_mb": 147
+        },
+        "native": {
+          "description": "SQL Server → SQL Server",
+          "avg_duration_ms": 4048,
+          "min_duration_ms": 4028,
+          "stddev_duration_ms": 19,
+          "runs": 5,
+          "avg_peak_mem_mb": 10,
+          "min_peak_mem_mb": 3
+        }
+      }
+    },
+    "B15": {
+      "description": "Oracle -> Oracle",
+      "tools": {
+        "dtpipe": {
+          "description": "Oracle → Oracle",
+          "avg_duration_ms": 2035,
+          "min_duration_ms": 1910,
+          "stddev_duration_ms": 77.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 283,
+          "min_peak_mem_mb": 279
+        },
+        "pandas": {
+          "description": "Oracle → Oracle",
+          "avg_duration_ms": 4559,
+          "min_duration_ms": 3929,
+          "stddev_duration_ms": 649.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 391,
+          "min_peak_mem_mb": 391
+        },
+        "meltano": {
+          "description": "Oracle → Oracle",
+          "avg_duration_ms": "Not implemented",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "sling": {
+          "description": "Oracle → Oracle",
+          "avg_duration_ms": 3449,
+          "min_duration_ms": 3161,
+          "stddev_duration_ms": 233.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 120,
+          "min_peak_mem_mb": 118
+        },
+        "ingestr": {
+          "description": "Oracle → Oracle",
+          "avg_duration_ms": "Not supported",
+          "min_duration_ms": null,
+          "stddev_duration_ms": null,
+          "runs": null,
+          "avg_peak_mem_mb": null,
+          "min_peak_mem_mb": null
+        },
+        "native": {
+          "description": "Oracle → Oracle",
+          "avg_duration_ms": 307,
+          "min_duration_ms": 289,
+          "stddev_duration_ms": 15,
+          "runs": 5,
+          "avg_peak_mem_mb": 14,
+          "min_peak_mem_mb": 14
+        }
+      }
+    },
+    "B16": {
+      "description": "Transform control -> null (no transformer)",
+      "tools": {
+        "dtpipe": {
+          "description": "Parquet → null (control, no transformer)",
+          "avg_duration_ms": 1073,
+          "min_duration_ms": 1064,
+          "stddev_duration_ms": 6.7,
+          "runs": 5,
+          "avg_peak_mem_mb": 229,
+          "min_peak_mem_mb": 223
+        }
+      }
+    },
+    "B17": {
+      "description": "Transform columnar chain -> null (fake+filter+mask)",
+      "tools": {
+        "dtpipe": {
+          "description": "Parquet → null (columnar chain: fake+filter+mask)",
+          "avg_duration_ms": 1699,
+          "min_duration_ms": 1644,
+          "stddev_duration_ms": 40.1,
+          "runs": 5,
+          "avg_peak_mem_mb": 263,
+          "min_peak_mem_mb": 235
+        }
+      }
+    },
+    "B18": {
+      "description": "Transform row chain -> null (compute)",
+      "tools": {
+        "dtpipe": {
+          "description": "Parquet → null (row chain: compute)",
+          "avg_duration_ms": 4720,
+          "min_duration_ms": 4588,
+          "stddev_duration_ms": 86.8,
+          "runs": 5,
+          "avg_peak_mem_mb": 1416,
+          "min_peak_mem_mb": 1408
+        }
+      }
+    },
+    "B19": {
+      "description": "Transform mixed chain -> null (row/columnar bridge)",
+      "tools": {
+        "dtpipe": {
+          "description": "Parquet → null (mixed chain: forces row↔columnar bridge)",
+          "avg_duration_ms": 5631,
+          "min_duration_ms": 5547,
+          "stddev_duration_ms": 77,
+          "runs": 5,
+          "avg_peak_mem_mb": 1490,
+          "min_peak_mem_mb": 1425
+        }
+      }
+    }
+  }
+}
