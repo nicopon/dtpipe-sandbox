@@ -23,7 +23,7 @@ source "$LIB_DIR/container-runtime.sh"
 init_container_runtime || exit 1
 
 # Default values
-BENCHMARK_ROWS=250000
+BENCHMARK_ROWS=1000000
 
 # Colors
 GREEN='\033[0;32m'

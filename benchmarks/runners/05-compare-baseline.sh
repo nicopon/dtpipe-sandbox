@@ -16,6 +16,11 @@
 # to no tighter than FOREIGN_HOST_MIN_THRESHOLD % — wide enough that only a
 # factor-scale change survives the hardware difference.
 #
+# The same refusal applies to the row count, and there it has no override at all:
+# durations are roughly linear in the number of rows, so comparing a 250k baseline
+# against a 1M run reports a +300 % "regression" on every scenario. No threshold
+# widening rescues that — only re-recording the baseline at the new scale does.
+#
 # This is the macro stage of the three-tier gate. It stays local, on the
 # reference machine, with the same status as validate_vitals.sh in dtpipe: the
 # suite needs Oracle and SQL Server in containers, which free CI runners cannot
@@ -45,7 +50,8 @@
 #       Record the current report as baselines/macro_perf.json.
 #
 #   ./05-compare-baseline.sh
-#       Compare against it. Refuses on a machine mismatch.
+#       Compare against it. Refuses on a machine mismatch, and on a scale
+#       mismatch (row count), which nothing overrides.
 #
 #   ./05-compare-baseline.sh --allow-foreign-host
 #       Compare anyway, at a clamped (wide) threshold.
@@ -146,7 +152,8 @@ if [ "$UPDATE" = true ]; then
     cp "$REPORT_FILE" "$BASELINE_FILE"
     echo -e "${GREEN}Baseline written: $BASELINE_FILE${NC}"
     echo -e "  Fingerprint: $(jq_file "$BASELINE_FILE" -r "$FINGERPRINT_FILTER")"
-    echo -e "  ${YELLOW}Only strictly comparable on the machine above.${NC}"
+    echo -e "  Scale:       $(jq_file "$BASELINE_FILE" -r '.configuration.benchmark_rows // "?"') rows × $(jq_file "$BASELINE_FILE" -r '.configuration.repetitions // "?"') repetitions"
+    echo -e "  ${YELLOW}Only comparable against a run at the same scale, on that machine.${NC}"
     exit $EXIT_PASS
 fi
 
@@ -155,6 +162,38 @@ fi
     echo -e "${YELLOW}Record one with: $0 --update${NC}"
     exit $EXIT_REFUSED
 }
+
+# =============================================================================
+# The scale rule — checked before the machine, because it is the harder failure
+# =============================================================================
+BASE_ROWS="$(jq_file "$BASELINE_FILE" -r '.configuration.benchmark_rows // "?"')"
+CUR_ROWS="$(jq_file "$REPORT_FILE"   -r '.configuration.benchmark_rows // "?"')"
+
+if [ "$BASE_ROWS" != "$CUR_ROWS" ]; then
+    echo -e "${RED}Row count differs from the baseline:${NC}"
+    echo -e "  baseline: ${BASE_ROWS} rows"
+    echo -e "  current:  ${CUR_ROWS} rows"
+    echo ""
+    echo -e "${RED}REFUSED — no verdict rendered, and no flag overrides this one.${NC}"
+    echo -e "${RED}Duration is roughly linear in the row count, so this comparison would${NC}"
+    echo -e "${RED}report a regression proportional to the ratio of the two scales and${NC}"
+    echo -e "${RED}nothing about the code. Widening the threshold does not help.${NC}"
+    echo ""
+    echo -e "  Re-record the baseline at the current scale:"
+    echo -e "    ./benchmarks.sh --rows ${CUR_ROWS} && $0 --update"
+    exit $EXIT_REFUSED
+fi
+
+BASE_REPS="$(jq_file "$BASELINE_FILE" -r '.configuration.repetitions // "?"')"
+CUR_REPS="$(jq_file "$REPORT_FILE"   -r '.configuration.repetitions // "?"')"
+if [ "$BASE_REPS" != "$CUR_REPS" ]; then
+    # Second-order but real: more repetitions means more chances at a fast run, so
+    # the minimum drifts down with the repetition count. Worth knowing, not worth
+    # refusing over.
+    echo -e "${YELLOW}Note: baseline ran ${BASE_REPS} repetitions, this report ${CUR_REPS}.${NC}"
+    echo -e "${YELLOW}The minimum drifts down as repetitions rise; expect a small bias.${NC}"
+    echo ""
+fi
 
 # =============================================================================
 # The fingerprint rule

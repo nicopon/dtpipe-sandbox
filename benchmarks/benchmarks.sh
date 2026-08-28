@@ -32,7 +32,7 @@ source "$LIB_DIR/container-runtime.sh"
 # =============================================================================
 # Defaults
 # =============================================================================
-BENCHMARK_ROWS=250000
+BENCHMARK_ROWS=1000000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"          # all | transfer | transform | B01 … B19 | comma-separated ids
 BENCHMARK_TOOL="all"           # all | dtpipe | pandas | meltano | sling | ingestr | native
@@ -75,7 +75,7 @@ Self-contained benchmark runner — starts infrastructure, initializes data,
 runs all tool benchmarks and generates a comparative report.
 
 Options:
-  --rows NUM              Number of source rows            (default: 250000)
+  --rows NUM              Number of source rows            (default: 1000000)
   --repetitions NUM       Runs per benchmark               (default: 3)
   --scope SELECTOR        Restrict which benchmarks run     (default: all)
                           all        every benchmark
@@ -93,11 +93,12 @@ Options:
   -h, --help              Show this help
 
 Examples:
-  # Full benchmark — 250 000 rows, 3 runs, all tools (default):
+  # Full benchmark — 1 000 000 rows, 3 runs, all tools (default):
   ./benchmarks.sh
 
-  # Larger dataset with 5 repetitions:
-  ./benchmarks.sh --rows 1000000 --repetitions 5
+  # Smaller and faster, for iterating on the suite itself
+  # (not for publication — see "Fixed cost" in benchmarks/README.md):
+  ./benchmarks.sh --rows 250000 --repetitions 3
 
   # Single tool, single pipeline:
   ./benchmarks.sh --tool dtpipe --scope B01

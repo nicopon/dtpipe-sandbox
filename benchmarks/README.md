@@ -132,7 +132,7 @@ The script automatically:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--rows NUM` | `250000` | Number of source rows |
+| `--rows NUM` | `1000000` | Number of source rows. Lower it to iterate on the suite, not to publish — see [Fixed cost](#fixed-cost-why-the-default-is-1-000-000-rows). |
 | `--repetitions NUM` | `3` | Runs per benchmark |
 | `--scope SELECTOR` | `all` | `all`, `transfer` (B01-B15), `transform` (B16-B19), one id (`B07`), or a comma-separated list (`B16,B19`) |
 | `--tool NAME`\|`all` | `all` | Single tool or all |
@@ -143,11 +143,15 @@ The script automatically:
 ### Examples
 
 ```bash
-# Full benchmark with defaults (250 000 rows, 3 runs, all tools):
+# Full benchmark with defaults (1 000 000 rows, 3 runs, all tools):
 ./benchmarks.sh
 
-# Larger dataset, more repetitions:
-./benchmarks.sh --rows 1000000 --repetitions 5
+# More repetitions — tightens the dispersion, lengthens the run:
+./benchmarks.sh --repetitions 5
+
+# Smaller and faster, for iterating on the suite itself.
+# Not for publication: see "Fixed cost" below.
+./benchmarks.sh --rows 250000 --repetitions 3
 
 # Single tool and pipeline (fast debug run):
 ./benchmarks.sh --tool dtpipe --scope B01 --rows 1000 --repetitions 1
@@ -164,7 +168,7 @@ The script automatically:
 > the source dataset and DB tables for the requested `--rows` count.
 > If you call a runner script directly, the source data for that row count must
 > already exist (from a prior `./benchmarks.sh` or `./runners/01-init-data.sh --rows NUM` run).
-> Calling `runners/03-sling.sh --rows 1000` when only a `250000`-row dataset was initialized
+> Calling `runners/03-sling.sh --rows 1000` when only a `1000000`-row dataset was initialized
 > will fail on every DB-source pipeline with "table does not exist".
 
 ---
@@ -271,7 +275,7 @@ cat artifacts/reports/benchmark_report.json
 The report can also be regenerated independently (e.g. after partial runs):
 
 ```bash
-./runners/04-report.sh --rows 250000 --repetitions 3
+./runners/04-report.sh --rows 1000000 --repetitions 3
 ```
 
 ### Which statistic the report publishes
@@ -297,6 +301,33 @@ runners no longer each carry their own arithmetic. The machine-readable JSON car
 `min_duration_ms`, `avg_duration_ms`, `stddev_duration_ms`, `runs`,
 `avg_peak_mem_mb` and `min_peak_mem_mb` per benchmark.
 
+### Fixed cost: why the default is 1 000 000 rows
+
+Every figure in this report is wall-clock time for a whole process: it contains the
+runtime's startup and the source's setup, neither of which scale with the row count.
+Measured on the reference machine:
+
+| | Process floor (`--version`) | Measured intercept of a run |
+|:---|---:|---:|
+| dtpipe (.NET, self-contained) | 132 ms | 235 ms (CSV source) to ~530 ms (Parquet source) |
+| sling | 46 ms | — |
+| ingestr | 57 ms | — |
+
+At 250 000 rows that used to put **about half** of a Parquet-source dtpipe measurement
+into fixed cost, while sling and ingestr start in a third of the time. A share of what
+looked like a throughput gap was a runtime-startup gap wearing throughput's clothes.
+Raising the default to 1 000 000 rows brings that share down to roughly a quarter.
+
+**It does not eliminate it.** A wall-clock benchmark cannot: the honest fix is to
+measure the *slope* — the same scenario at two row counts, reporting the marginal cost
+per row and discarding the intercept. That is a real change to the suite (two sizes per
+scenario, a different report and gate schema) and it has not been made. Until it is,
+read the absolute numbers as containing a few hundred milliseconds that belong to
+process startup, and read cross-tool comparisons of *fast* scenarios with that in mind.
+
+Lowering `--rows` for a quick iteration is fine and expected. Publishing numbers taken
+that way is not.
+
 ---
 
 ## Performance Gate
@@ -311,6 +342,15 @@ baseline in `baselines/` and renders a verdict — or refuses to.
 # Compare a later run against it
 ./runners/05-compare-baseline.sh --threshold 15
 ```
+
+### It refuses across scales, with no override
+
+A baseline is only meaningful against a run at the same row count: duration is roughly
+linear in it, so a 250 000-row baseline against a 1 000 000-row run reports a +300 %
+"regression" on every scenario. No threshold widening rescues that, so nothing overrides
+this refusal — re-record the baseline at the new scale instead. A differing repetition
+count is only warned about: more repetitions means more chances at a fast run, so the
+minimum drifts down slightly, but the comparison stays meaningful.
 
 ### It refuses across machines, on purpose
 

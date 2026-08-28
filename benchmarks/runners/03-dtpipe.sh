@@ -19,7 +19,7 @@ source "$LIB_DIR/mem-watcher.sh"
 source "$LIB_DIR/stats.sh"
 
 # Default values
-BENCHMARK_ROWS=250000
+BENCHMARK_ROWS=1000000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"           # all, B01-B12
 

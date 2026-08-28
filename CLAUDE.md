@@ -72,8 +72,14 @@ verdict**. This is not caution: comparing durations across different hardware gi
 misleading verdict, not a weaker one, because most of the gap is then the machine.
 `--allow-foreign-host` overrides it and clamps the threshold to ≥ 50 %.
 
-Do not "fix" this by downgrading the refusal to a warning. A warning next to a number
-gets read as a number.
+The same gate also refuses a **row-count** mismatch, and that one has no override at
+all: duration is roughly linear in the row count, so a 250k baseline against a 1M run
+reports a +300 % regression on everything. No threshold rescues it; only re-recording
+the baseline at the new scale does. A differing repetition count is warned about, not
+refused — more repetitions lowers the minimum slightly but keeps the comparison sound.
+
+Do not "fix" any of this by downgrading a refusal to a warning. A warning next to a
+number gets read as a number.
 
 It obeys the host-dependency rule the same way `04-report.sh` does — jq runs inside
 `benchmark-test` — so **`benchmark-test` must be running** when the gate is invoked.
@@ -107,7 +113,9 @@ B06, B08, B10, B12) fails with "table does not exist".
 
 ### `benchmark.env` vs `benchmarks.sh` defaults
 
-`benchmark.env` is sourced by `03-*.sh` scripts but **not** by `benchmarks.sh` — which defines its own `BENCHMARK_ROWS=250000` and passes it via `--rows`. Both are aligned at 250000. The env file value only takes effect when a `03-*.sh` is called directly without `--rows`.
+`benchmark.env` is sourced by `03-*.sh` scripts but **not** by `benchmarks.sh` — which defines its own `BENCHMARK_ROWS` and passes it via `--rows`. The env file value only takes effect when a `03-*.sh` is called directly without `--rows`.
+
+The default row count is declared in **ten** places (`benchmarks.sh`, `benchmark.env`, `01-init-data.sh`, the six `03-*.sh`, `04-report.sh`) and they must stay aligned — currently `1000000`. It was raised from `250000` because at that size roughly half of a Parquet-source dtpipe measurement was process startup and source setup, while sling and ingestr start in a third of the time: part of the published competitive gap was a runtime-startup comparison. 1M brings that share to about a quarter; it does not remove it. The real fix is to measure the slope at two row counts and discard the intercept, which has not been done. Lowering `--rows` to iterate is fine; publishing numbers taken that way is not.
 
 ---
 
