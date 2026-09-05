@@ -212,9 +212,10 @@ run_pipeline "B04" "SQL Server → CSV" \
     "$MSSQL_URI" "dbo.benchmark_source_${SUFFIX}" \
     "csv:///bench/artifacts/ingestr_bench_mssql_to_csv.csv" "ingestr_bench_mssql_to_csv"
 
-# B05: Parquet → Oracle (Not supported as destination)
+# B05: Parquet → Oracle
 run_pipeline "B05" "Parquet → Oracle" \
-    "NOT_SUPPORTED" "" "" ""
+    "$PARQUET_SRC_URI" "source_data_${SUFFIX}" \
+    "$ORACLE_URI" "INGESTR_BENCH_ORACLE"
 
 # B06: Oracle → Parquet
 run_pipeline "B06" "Oracle → Parquet" \
@@ -242,9 +243,10 @@ run_pipeline "B10" "SQL Server → Parquet" \
     "$MSSQL_URI" "dbo.benchmark_source_${SUFFIX}" \
     "parquet:///bench/artifacts/ingestr_bench_mssql_to_pq.parquet" "ingestr_bench_mssql_to_pq"
 
-# B11: CSV → Oracle (Not supported as destination)
+# B11: CSV → Oracle
 run_pipeline "B11" "CSV → Oracle" \
-    "NOT_SUPPORTED" "" "" ""
+    "$CSV_SRC_URI" "source_data_${SUFFIX}" \
+    "$ORACLE_URI" "INGESTR_BENCH_ORACLE_CSV"
 
 # B12: Oracle → CSV
 run_pipeline "B12" "Oracle → CSV" \
@@ -257,6 +259,8 @@ POSTGRES_READER_URI="postgresql://${DB_POSTGRES_READER_USER:-bench_reader}:${DB_
 POSTGRES_WRITER_URI="postgresql://${DB_POSTGRES_WRITER_USER:-bench_writer}:${DB_POSTGRES_WRITER_PASSWORD:-password}@$DB_POSTGRES_HOST:$DB_POSTGRES_PORT/$DB_POSTGRES_DB"
 MSSQL_READER_URI="mssql://${DB_MSSQL_READER_USER:-bench_reader}:${DB_MSSQL_READER_PASSWORD:-BenchReader1!}@$DB_MSSQL_HOST:$DB_MSSQL_PORT/$DB_MSSQL_DB?encrypt=disable"
 MSSQL_WRITER_URI="mssql://${DB_MSSQL_WRITER_USER:-bench_writer}:${DB_MSSQL_WRITER_PASSWORD:-BenchWriter1!}@$DB_MSSQL_HOST:$DB_MSSQL_PORT/$DB_MSSQL_DB?encrypt=disable"
+ORACLE_READER_URI="oracle://${DB_ORACLE_READER_USER:-bench_reader}:${DB_ORACLE_READER_PASSWORD:-password}@$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE"
+ORACLE_WRITER_URI="oracle://${DB_ORACLE_WRITER_USER:-bench_writer}:${DB_ORACLE_WRITER_PASSWORD:-password}@$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE"
 
 # B13: PostgreSQL → PostgreSQL
 run_pipeline "B13" "PostgreSQL → PostgreSQL" \
@@ -269,9 +273,10 @@ run_pipeline "B14" "SQL Server → SQL Server" \
     "$MSSQL_READER_URI" "dbo.benchmark_source_${SUFFIX}" \
     "$MSSQL_WRITER_URI" "${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}.ingestr_bench_mssql2mssql"
 
-# B15: Oracle → Oracle (Not supported: Oracle is not a supported destination in ingestr)
+# B15: Oracle → Oracle
 run_pipeline "B15" "Oracle → Oracle" \
-    "NOT_SUPPORTED" "" "" ""
+    "$ORACLE_READER_URI" "${DB_ORACLE_USER_UPPER}.BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
+    "$ORACLE_WRITER_URI" "INGESTR_BENCH_ORA2ORA"
 
 
 # =============================================================================
