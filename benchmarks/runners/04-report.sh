@@ -426,34 +426,43 @@ HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
     echo ""
     echo "---"
     echo ""
+    # Columns are the tools this run actually measured, not a fixed six. benchmarks.sh
+    # purges every per-tool report before a run, so a file here means that tool ran now.
+    # A column of nothing but "N/A" is worse than an absent one: it reads as a tool that
+    # was measured and produced nothing, which is the mistake meltano's missing bootstrap
+    # already made once.
+    REPORT_TOOLS=()
+    for _t in dtpipe pandas meltano sling ingestr native; do
+        [[ -f "$ARTIFACTS_DIR/${_t}/${_t}_report.json" ]] && REPORT_TOOLS+=("$_t")
+    done
+    [[ ${#REPORT_TOOLS[@]} -eq 0 ]] && REPORT_TOOLS=(dtpipe)
+
+    _tool_label() { [[ "$1" == "pandas" ]] && echo "pandas - sqlalchemy" || echo "$1"; }
+    _header_row() {
+        local h="| Benchmark" sep="|:---"
+        for _t in "${REPORT_TOOLS[@]}"; do h+=" | $(_tool_label "$_t")"; sep+="|:---:"; done
+        echo "$h |"; echo "$sep|"
+    }
+
     echo "## Comparative Table — Duration (min of $BENCHMARK_REPETITIONS runs, ms)"
     echo ""
     echo "> The fastest of the repetitions is the reference figure: scheduling noise,"
     echo "> page-cache warming and neighbour processes can only ever add time to a run."
     echo "> The dispersion table below says how much noise sits behind each figure."
     echo ""
-    echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
-    echo "|:---|:---:|:---:|:---:|:---:|:---:|:---:|"
+    _header_row
 
           # Calculate and display results for each benchmark (best value bolded)
       for idx in "${!BENCHMARK_IDS[@]}"; do
           bid="${BENCHMARK_IDS[$idx]}"
           bdesc="${BENCHMARK_DESCRIPTIONS[$idx]}"
 
-          eval "dtpipe_ms=\${dtpipe_min_${bid}:-N/A}"
-          eval "pandas_ms=\${pandas_min_${bid}:-N/A}"
-          eval "meltano_ms=\${meltano_min_${bid}:-N/A}"
-          eval "sling_ms=\${sling_min_${bid}:-N/A}"
-          eval "ingestr_ms=\${ingestr_min_${bid}:-N/A}"
-          eval "native_ms=\${native_min_${bid}:-N/A}"
-
-          format_table_row --duration "$BENCHMARK_ROWS" "$bdesc" \
-              "$dtpipe_ms" "dtpipe" \
-              "$pandas_ms" "pandas" \
-              "$meltano_ms" "meltano" \
-              "$sling_ms" "sling" \
-              "$ingestr_ms" "ingestr" \
-              "$native_ms" "native"
+          _args=()
+          for _t in "${REPORT_TOOLS[@]}"; do
+              eval "_v=\${${_t}_min_${bid}:-N/A}"
+              _args+=("$_v" "$_t")
+          done
+          format_table_row --duration "$BENCHMARK_ROWS" "$bdesc" "${_args[@]}"
       done
 
     echo ""
@@ -462,26 +471,20 @@ HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
     echo "> Read against the table above: a gap between two tools that is smaller than"
     echo "> their standard deviations is not a result. \"—\" = not supported or not run."
     echo ""
-    echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
-    echo "|:---|:---:|:---:|:---:|:---:|:---:|:---:|"
+    _header_row
 
       for idx in "${!BENCHMARK_IDS[@]}"; do
           bid="${BENCHMARK_IDS[$idx]}"
           bdesc="${BENCHMARK_DESCRIPTIONS[$idx]}"
 
-          for _t in dtpipe pandas meltano sling ingestr native; do
-              eval "${_t}_avg=\${${_t}_${bid}:-N/A}"
-              eval "${_t}_sd=\${${_t}_sd_${bid}:-N/A}"
-              eval "${_t}_runs=\${${_t}_runs_${bid}:-N/A}"
+          _args=()
+          for _t in "${REPORT_TOOLS[@]}"; do
+              eval "_a=\${${_t}_${bid}:-N/A}"
+              eval "_s=\${${_t}_sd_${bid}:-N/A}"
+              eval "_r=\${${_t}_runs_${bid}:-N/A}"
+              _args+=("$_a" "$_s" "$_r" "$_t")
           done
-
-          format_dispersion_row "$bdesc" \
-              "$dtpipe_avg" "$dtpipe_sd" "$dtpipe_runs" "dtpipe" \
-              "$pandas_avg" "$pandas_sd" "$pandas_runs" "pandas" \
-              "$meltano_avg" "$meltano_sd" "$meltano_runs" "meltano" \
-              "$sling_avg" "$sling_sd" "$sling_runs" "sling" \
-              "$ingestr_avg" "$ingestr_sd" "$ingestr_runs" "ingestr" \
-              "$native_avg" "$native_sd" "$native_runs" "native"
+          format_dispersion_row "$bdesc" "${_args[@]}"
       done
 
     echo ""
@@ -490,27 +493,18 @@ HOST_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null \
     echo "> Peak cgroup memory increase measured from container baseline during transfer."
     echo "> N/A = not supported or not implemented for this tool."
     echo ""
-    echo "| Benchmark | dtpipe | pandas - sqlalchemy | meltano | sling | ingestr | native |"
-    echo "|:---|:---:|:---:|:---:|:---:|:---:|:---:|"
+    _header_row
 
       for idx in "${!BENCHMARK_IDS[@]}"; do
           bid="${BENCHMARK_IDS[$idx]}"
           bdesc="${BENCHMARK_DESCRIPTIONS[$idx]}"
 
-          eval "dtpipe_mem=\${dtpipe_mem_${bid}:-N/A}"
-          eval "pandas_mem=\${pandas_mem_${bid}:-N/A}"
-          eval "meltano_mem=\${meltano_mem_${bid}:-N/A}"
-          eval "sling_mem=\${sling_mem_${bid}:-N/A}"
-          eval "ingestr_mem=\${ingestr_mem_${bid}:-N/A}"
-          eval "native_mem=\${native_mem_${bid}:-N/A}"
-
-          format_mem_row "$bdesc" \
-              "$dtpipe_mem" "dtpipe" \
-              "$pandas_mem" "pandas" \
-              "$meltano_mem" "meltano" \
-              "$sling_mem" "sling" \
-              "$ingestr_mem" "ingestr" \
-              "$native_mem" "native"
+          _args=()
+          for _t in "${REPORT_TOOLS[@]}"; do
+              eval "_v=\${${_t}_mem_${bid}:-N/A}"
+              _args+=("$_v" "$_t")
+          done
+          format_mem_row "$bdesc" "${_args[@]}"
       done
       
     echo ""
@@ -738,7 +732,7 @@ _generate_json_report() {
         "Transform mixed chain -> null (row/columnar bridge)"
     )
 
-    local tools=("dtpipe" "pandas" "meltano" "sling" "ingestr" "native")
+    local tools=("${REPORT_TOOLS[@]}")
 
     local result="$base_json"
 
