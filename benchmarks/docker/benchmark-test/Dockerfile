@@ -63,7 +63,7 @@ ENV PATH=$ORACLE_HOME:/opt/mssql-tools18/bin:$PATH
 RUN echo $ORACLE_HOME > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 
 # 4. Download and install dtpipe standalone binary from GitHub releases
-ARG DTPIPE_VERSION=v1.4.0
+ARG DTPIPE_VERSION=v1.8.1
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then DTPIPE_ARCH="x64"; else DTPIPE_ARCH="arm64"; fi && \
     curl -fsSL -o dtpipe.tar.gz "https://github.com/nicopon/dtpipe/releases/download/${DTPIPE_VERSION}/dtpipe-linux-${DTPIPE_ARCH}.tar.gz" && \
@@ -73,7 +73,7 @@ RUN ARCH=$(uname -m) && \
     rm dtpipe.tar.gz
 
 # 5. Install Sling & ingestr (native Go binaries)
-ARG SLING_VERSION=v1.5.20
+ARG SLING_VERSION=v1.6.2
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then SLING_ARCH="linux_amd64"; else SLING_ARCH="linux_arm64"; fi && \
     curl -fsSL -o sling.tar.gz "https://github.com/slingdata-io/sling-cli/releases/download/${SLING_VERSION}/sling_${SLING_ARCH}.tar.gz" && \
@@ -81,7 +81,7 @@ RUN ARCH=$(uname -m) && \
     mv sling /usr/local/bin/sling && \
     rm sling.tar.gz
 
-ARG INGESTR_VERSION=v1.0.37
+ARG INGESTR_VERSION=v1.1.54
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then INGESTR_ARCH="x86_64"; else INGESTR_ARCH="arm64"; fi && \
     curl -fsSL -o ingestr.tar.gz "https://github.com/bruin-data/ingestr/releases/download/${INGESTR_VERSION}/ingestr_Linux_${INGESTR_ARCH}.tar.gz" && \

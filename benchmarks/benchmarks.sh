@@ -277,10 +277,13 @@ DTPIPE_LATEST=$(_resolve_tag "nicopon/dtpipe" || echo "")
 SLING_LATEST=$(_resolve_tag "slingdata-io/sling-cli" || echo "")
 INGESTR_LATEST=$(_resolve_tag "bruin-data/ingestr" || echo "")
 
-# Fallback to default pinned versions if resolution failed (e.g. offline)
-DTPIPE_LATEST="${DTPIPE_LATEST:-v1.4.0}"
-SLING_LATEST="${SLING_LATEST:-v1.5.20}"
-INGESTR_LATEST="${INGESTR_LATEST:-v1.0.37}"
+# Fallback to default pinned versions if resolution failed (e.g. offline).
+# These are a floor, not a pin: an online run always takes the latest tag above.
+# Refreshed 2026-09-12 — they had drifted four dtpipe minors behind, so an offline
+# run silently benchmarked versions nobody was comparing.
+DTPIPE_LATEST="${DTPIPE_LATEST:-v1.8.1}"
+SLING_LATEST="${SLING_LATEST:-v1.6.2}"
+INGESTR_LATEST="${INGESTR_LATEST:-v1.1.54}"
 
 echo "  dtpipe version:  $DTPIPE_LATEST"
 echo "  sling version:   $SLING_LATEST"
