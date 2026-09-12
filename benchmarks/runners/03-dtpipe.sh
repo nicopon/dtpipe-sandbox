@@ -435,6 +435,11 @@ run_pipeline "B15" "Oracle → Oracle" \
 #   - the compute in B18 and B19 is byte-identical and reads the untouched
 #     email column (it runs before --mask in B19);
 #   - no scenario adds or drops a column, so the schema is constant.
+#
+# No --no-schema-validation here, unlike B01-B15: the null: writer has no schema
+# to validate and takes no options at all, so dtpipe refuses the flag rather than
+# accept one that binds nothing. It never bound anything here — removing it does
+# not move a measurement.
 # =============================================================================
 
 DTPIPE_TRANSFORM_SOURCE="/bench/artifacts/source_data_${SUFFIX}.parquet"
@@ -442,8 +447,7 @@ DTPIPE_TRANSFORM_SOURCE="/bench/artifacts/source_data_${SUFFIX}.parquet"
 # B16: control — no transformer
 run_pipeline --no-verify "B16" "Parquet → null (control, no transformer)" \
       --input "$DTPIPE_TRANSFORM_SOURCE" \
-      --output "null:" \
-      --no-schema-validation
+      --output "null:"
 
 # B17: columnar chain — fake + filter + mask, all on the Arrow fast path
 run_pipeline --no-verify "B17" "Parquet → null (columnar chain: fake+filter+mask)" \
@@ -451,15 +455,13 @@ run_pipeline --no-verify "B17" "Parquet → null (columnar chain: fake+filter+ma
       --fake "name:name.fullName" \
       --filter "country != ZZZ" \
       --mask "email" \
-      --output "null:" \
-      --no-schema-validation
+      --output "null:"
 
 # B18: row chain — compute alone, the whole stream runs in row mode
 run_pipeline --no-verify "B18" "Parquet → null (row chain: compute)" \
       --input "$DTPIPE_TRANSFORM_SOURCE" \
       --compute "email:row.email.toLowerCase()" \
-      --output "null:" \
-      --no-schema-validation
+      --output "null:"
 
 # B19: mixed chain — same transformers as B17 and B18, arranged so the pipeline
 # is forced back and forth across the row/columnar boundary
@@ -469,8 +471,7 @@ run_pipeline --no-verify "B19" "Parquet → null (mixed chain: forces row↔colu
       --filter "country != ZZZ" \
       --compute "email:row.email.toLowerCase()" \
       --mask "email" \
-      --output "null:" \
-      --no-schema-validation
+      --output "null:"
 
 
 # =============================================================================
