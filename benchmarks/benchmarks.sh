@@ -35,7 +35,7 @@ source "$LIB_DIR/container-runtime.sh"
 BENCHMARK_ROWS=1000000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"          # all | transfer | transform | B01 … B19 | comma-separated ids
-BENCHMARK_TOOL="all"           # all | one tool | comma-separated list
+BENCHMARK_TOOL="default"       # default | all | one tool | comma-separated list
 SKIP_INFRA=false               # --skip-infra  → skip DB infrastructure startup
 CLEAN_ARTIFACTS=false          # --clean-artifacts → wipe tool output files before running
 INFRA_COMPOSE_FILE=""          # --infra-compose FILE → custom infra compose path
@@ -83,8 +83,9 @@ Options:
                           transform  B16-B19, the dtpipe-only transformer family
                           B07        a single benchmark
                           B16,B19    a comma-separated list
-  --tool SELECTOR         Restrict which tools run          (default: all)
-                          all                every tool
+  --tool SELECTOR         Restrict which tools run          (default: default)
+                          default            dtpipe sling ingestr native
+                          all                adds pandas and meltano
                           dtpipe             a single tool
                           dtpipe,ingestr     a comma-separated list
                           Names: dtpipe pandas meltano sling ingestr native
@@ -340,8 +341,21 @@ echo -e "${CYAN}═════════════════════�
 echo -e "${CYAN}  Step 2: Benchmarks${NC}"
 echo -e "${CYAN}══════════════════════════════════════${NC}"
 
+# ALL_TOOLS is the validation set: every name --tool accepts, so a typo is still
+# rejected rather than silently skipped.
 ALL_TOOLS=("dtpipe" "pandas" "meltano" "sling" "ingestr" "native")
-if [[ "$BENCHMARK_TOOL" == "all" ]]; then
+
+# DEFAULT_TOOLS is what a bare run measures. pandas and meltano sit outside it
+# because they answer a different question, not because they lose: a Singer tap
+# serialises every record to JSON over a pipe, and pandas is an analysis library
+# rather than a transfer tool. Both gaps are architectural, stable, and already
+# measured (2026-09-12: x9 to x200) -- re-measuring them every run bought nothing
+# and cost 68 % of the wall clock. Run them with --tool meltano, or --tool all.
+DEFAULT_TOOLS=("dtpipe" "sling" "ingestr" "native")
+
+if [[ "$BENCHMARK_TOOL" == "default" ]]; then
+    TOOLS=("${DEFAULT_TOOLS[@]}")
+elif [[ "$BENCHMARK_TOOL" == "all" ]]; then
     TOOLS=("${ALL_TOOLS[@]}")
 else
     # Comma-separated list, same grammar as --scope. A typo used to degrade
@@ -357,6 +371,15 @@ else
         fi
     done
 fi
+
+# 04-report.sh builds the comparative table from whichever per-tool JSON files sit
+# on disk, and those survive a run. Without this purge a run that measures four
+# tools silently republishes the other two from an earlier run, under this run's
+# date -- the splice is automatic and invisible. One run, one report.
+for _t in "${ALL_TOOLS[@]}"; do
+    rm -f "$ARTIFACTS_DIR/${_t}/${_t}_report.json"
+done
+rm -f "$ARTIFACTS_DIR/reports/"*.md "$ARTIFACTS_DIR/reports/"*.json 2>/dev/null || true
 
 for tool in "${TOOLS[@]}"; do
     echo ""

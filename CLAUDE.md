@@ -98,6 +98,34 @@ documented in the runner — same source and sink, a filter that keeps every row
 identical `--compute` in B18 and B19, no column added or dropped. Changing any one of
 them without changing all four breaks the subtraction silently.
 
+### The default tool set is four, and the two left out are not left out for losing
+
+`ALL_TOOLS` is the set `--tool` validates against; `DEFAULT_TOOLS` is what a bare run
+measures. pandas and meltano are in the first and not the second.
+
+The reason is **what they measure**, not where they place. A Singer tap serialises every
+record to JSON over a pipe between tap and target, and pandas is an analysis library that
+happens to be able to move rows. Their gaps — x9 to x200, measured 2026-09-12 — are facts
+about those two architectures, not about the quality of either implementation, and they do
+not move between versions. Re-measuring them every run bought nothing and cost **68 % of
+the wall clock** (meltano 47 %, pandas 21 %). `--tool all` still runs the six.
+
+**Dropping a competitor because it loses is selection, and it is what makes a benchmark
+untrustworthy.** If the reason ever shrinks to "it is slow", put them back: the published
+figure must keep its date, its versions and its motive, or the absent column reads as a
+verdict rather than a scope decision.
+
+### A run purges every per-tool report before it starts
+
+`04-report.sh` assembles the comparative table from whichever `<tool>/<tool>_report.json`
+files are on disk, skipping the absent ones — and those files survive a run. So a run that
+measures four tools would republish the other two from an earlier run under **this** run's
+date, with nothing in the output saying so. The purge in `benchmarks.sh` Step 2 is what
+keeps one run to one report; it matters far more now that the default set is a subset.
+
+Consequence to accept, not work around: `--tool dtpipe` produces a dtpipe-only report. A
+comparative table wants a comparative run.
+
 ### Meltano needs its project bootstrapped, and `meltano add` changed syntax in 4.x
 
 `03-meltano.sh` bootstraps `/bench/artifacts/meltano/meltano_project` itself, idempotently.

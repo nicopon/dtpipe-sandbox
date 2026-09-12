@@ -135,7 +135,7 @@ The script automatically:
 | `--rows NUM` | `1000000` | Number of source rows. Lower it to iterate on the suite, not to publish — see [Fixed cost](#fixed-cost-why-the-default-is-1-000-000-rows). |
 | `--repetitions NUM` | `3` | Runs per benchmark |
 | `--scope SELECTOR` | `all` | `all`, `transfer` (B01-B15), `transform` (B16-B19), one id (`B07`), or a comma-separated list (`B16,B19`) |
-| `--tool SELECTOR` | `all` | `all`, one tool (`dtpipe`), or a comma-separated list (`dtpipe,ingestr`). Unknown names are rejected. |
+| `--tool SELECTOR` | `default` | `default` (dtpipe, sling, ingestr, native), `all` (adds pandas and meltano), one tool (`dtpipe`), or a comma-separated list (`dtpipe,ingestr`). Unknown names are rejected. |
 | `--skip-infra` | _(off)_ | Skip DB infrastructure startup |
 | `--infra-compose FILE` | auto | Path to infra docker-compose file |
 | `--clean-artifacts` | _(off)_ | Wipe previous output files first |
