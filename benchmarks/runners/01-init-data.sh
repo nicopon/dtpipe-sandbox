@@ -245,6 +245,12 @@ GRANT SELECT ON TABLE benchmark_source_${SUFFIX} TO ${DB_POSTGRES_WRITER_USER:-b
 CREATE SCHEMA IF NOT EXISTS ${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt};
 ALTER SCHEMA ${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt} OWNER TO ${DB_POSTGRES_WRITER_USER:-bench_writer};
 GRANT ALL ON SCHEMA ${DB_POSTGRES_WRITER_SCHEMA:-bench_tgt} TO ${DB_POSTGRES_WRITER_USER:-bench_writer};
+-- ingestr >= 1.1.5x replaces a table in place through a shared staging schema. It
+-- creates that schema under whichever account runs first, and B01/B07 run as the
+-- superuser while B13 runs as bench_writer -- which then cannot use it, and B13
+-- fails with "permission denied for schema _bruin_staging" before moving a row.
+CREATE SCHEMA IF NOT EXISTS _bruin_staging;
+GRANT ALL ON SCHEMA _bruin_staging TO ${DB_POSTGRES_WRITER_USER:-bench_writer};
 EOF
 if container_exec benchmark-test \
     bash -c "PGPASSWORD='${DB_POSTGRES_PASSWORD:-password}' psql \
