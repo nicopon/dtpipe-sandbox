@@ -161,9 +161,15 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     echo "OK:$ELAPSED_MS"
 else
     echo "FAIL:$EXIT_CODE:$ELAPSED_MS"
-    tail -5 /tmp/dtpipe_out.txt | while read -r line; do echo "ERR:$line"; done
+    if [[ -s /tmp/dtpipe_out.txt ]]; then
+        tail -20 /tmp/dtpipe_out.txt | sed 's/^/ERR:/'
+    else
+        echo "ERR:(dtpipe exited $EXIT_CODE without writing any output)"
+    fi
 fi
-rm -f /tmp/dtpipe_out.txt
+# Kept on failure: a run that fails and leaves nothing behind cannot be diagnosed
+# afterwards, and that is exactly what happened to B14 on 2026-09-12.
+[[ $EXIT_CODE -eq 0 ]] && rm -f /tmp/dtpipe_out.txt
 SCRIPT_FOOTER
 
     chmod +x "$runner_script"
@@ -200,7 +206,7 @@ SCRIPT_FOOTER
             local exit_code elapsed_ms err_msg
             exit_code=$(echo "$status_line" | cut -d: -f2 || echo "?")
             elapsed_ms=$(echo "$status_line" | cut -d: -f3 || echo "?")
-            err_msg=$(echo "$output" | grep "^ERR:" | head -1 | sed 's/^ERR://')
+            err_msg=$(echo "$output" | grep "^ERR:" | sed 's/^ERR://')
             echo -e " ${RED}FAILED (exit=${exit_code}, ${elapsed_ms} ms)${NC}"
             if [[ -n "$err_msg" ]]; then
                 echo -e "          $err_msg"
