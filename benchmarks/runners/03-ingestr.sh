@@ -119,8 +119,18 @@ run_pipeline() {
     echo ""
     echo -e "${YELLOW}--- $bench_id (ingestr): $description ---${NC}"
 
+    # ingestr >= 1.1.5x stages a replace through a managed schema (_bruin_staging)
+    # rather than the destination's own. The benchmark writes some scenarios as the
+    # superuser and others as bench_writer, so whichever ran first owned that schema
+    # and the other was denied it. Keeping staging inside the destination's schema
+    # confines each tool to the account it is benchmarked with.
+    local staging_flag=""
+    if [[ "$dest_table" == *.* ]]; then
+        staging_flag="--staging-dataset '${dest_table%%.*}'"
+    fi
+
     # Build the ingestr command
-    local ingestr_cmd="ingestr ingest --source-uri '$src_uri' --source-table '$src_table' --dest-uri '$dest_uri' --dest-table '$dest_table' --yes --progress log --full-refresh --schema-naming direct $extra_flags"
+    local ingestr_cmd="ingestr ingest --source-uri '$src_uri' --source-table '$src_table' --dest-uri '$dest_uri' --dest-table '$dest_table' --yes --progress log --full-refresh --schema-naming direct $staging_flag $extra_flags"
 
     # Write runner script to a temp file and copy it into the container (avoids quoting issues)
     local runner_script
