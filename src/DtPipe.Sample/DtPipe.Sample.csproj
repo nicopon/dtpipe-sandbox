@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <PackageReference Include="DtPipe.Adapters" Version="1.4.0" />
-    <PackageReference Include="DtPipe.Transformers" Version="1.4.0" />
+    <PackageReference Include="DtPipe.Adapters" Version="1.8.2" />
+    <PackageReference Include="DtPipe.Transformers" Version="1.8.2" />
 <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.8" />
   </ItemGroup>
 
