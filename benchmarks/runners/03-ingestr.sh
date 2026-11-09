@@ -70,6 +70,7 @@ else
 fi
 SUFFIX_UPPER=$(echo "$SUFFIX" | tr '[:lower:]' '[:upper:]')
 DB_ORACLE_USER_UPPER=$(echo "${DB_ORACLE_USER:-testuser}" | tr '[:lower:]' '[:upper:]')
+DB_ORACLE_WRITER_USER_UPPER=$(echo "${DB_ORACLE_WRITER_USER:-bench_writer}" | tr '[:lower:]' '[:upper:]')
 
 
 # Ensure artifacts directory exists
@@ -286,7 +287,7 @@ run_pipeline "B14" "SQL Server → SQL Server" \
 # B15: Oracle → Oracle
 run_pipeline "B15" "Oracle → Oracle" \
     "$ORACLE_READER_URI" "${DB_ORACLE_USER_UPPER}.BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
-    "$ORACLE_WRITER_URI" "INGESTR_BENCH_ORA2ORA"
+    "$ORACLE_WRITER_URI" "${DB_ORACLE_WRITER_USER_UPPER}.INGESTR_BENCH_ORA2ORA"
 
 
 # =============================================================================

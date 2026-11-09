@@ -259,11 +259,10 @@ Run just this family — no DB target is involved, so it is fast:
 |------|------------|--------|--------|
 | **Meltano** | B01, B05, B09 (Parquet source) | Not implemented | `tap-parquet` (AE-nv, stable) exists on MeltanoHub but fails on `fixed_size_binary[16]` (UUID column) due to a PyArrow upstream bug — not a design limitation of Meltano |
 | **Meltano** | B05, B06, B11, B12 (Oracle) | Not implemented | `tap-oracle` (Silver) and `target-oracle` (Gold) exist on MeltanoHub but are not configured in this benchmark |
-| **ingestr** | B05, B11 (→ Oracle target) | Not supported | Oracle is not a supported destination in ingestr ([confirmed in official docs](https://bruin-data.github.io/ingestr/)) |
 | **native** | B01, B02, B05, B06, B09, B10 (Parquet ↔ DB) | Not supported | `psql`, `bcp`, `sqlplus`, `sqlldr` have no native Parquet support — they predate the format and only handle text/proprietary binary formats |
 | **Meltano** | B14, B15 (intra MSSQL/Oracle) | Not implemented | Not configured in this benchmark |
-| **ingestr** | B15 (→ Oracle target) | Not supported | Oracle is not a supported destination in ingestr |
 | **pandas** | _(all supported)_ | — | — |
+| **ingestr** | _(all supported)_ | — | — |
 | **dtpipe** | _(all supported)_ | — | — |
 
 ---
