@@ -155,8 +155,8 @@ bootstrap_meltano_project() {
 bootstrap_meltano_project || true
 
 # Warm-up: ensure meltano and its plugins are loaded before the first timed run
-echo -e "${YELLOW}Warming up meltano...${NC}"
-container_exec benchmark-test /opt/venv/meltano/bin/meltano --version > /dev/null 2>&1 || true
+echo -e "${YELLOW}Warming up meltano and pre-installing plugins...${NC}"
+container_exec benchmark-test bash -c "cd /bench/artifacts/meltano/meltano_project && /opt/venv/meltano/bin/meltano install" > /dev/null 2>&1 || true
 
 # Helper to run database drops prior to Meltano runs to ensure a clean schema
 drop_target_table() {
