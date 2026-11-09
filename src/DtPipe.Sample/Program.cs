@@ -44,13 +44,15 @@ class Program
     }
 
     /// <summary>
-    /// Scenario 1: Bridging a Reader and a Writer with the loop in MiniPipeline.
-    /// This is the standard, optimized DtPipe execution model.
+    /// Scenario 1: Using PipelineEngine backed by DtPipe.Core's DagOrchestrator to bridge a Reader and a Writer.
+    /// This is the standard, unified DtPipe execution model (single-branch DAG).
     /// </summary>
     static async Task RunFullPipelineExampleAsync(ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger<Program>();
-        logger.LogInformation("--- Scenario 1: Reader to Writer ---");
+        logger.LogInformation("--- Scenario 1: Full Pipeline Engine (backed by DagOrchestrator) ---");
+
+        var engine = new PipelineEngine(loggerFactory);
 
         var readerOptions = new GenerateReaderOptions { RowCount = 5 };
         var reader = new GenerateReader("5", "", readerOptions);
@@ -61,7 +63,7 @@ class Program
         await reader.OpenAsync(CancellationToken.None);
         await writer.InitializeAsync(reader.Columns!, CancellationToken.None);
 
-        long rowCount = await MiniPipeline.RunAsync(
+        long rowCount = await engine.RunAsync(
             reader: reader,
             writer: writer,
             pipeline: null,
@@ -209,6 +211,8 @@ class Program
         var logger = loggerFactory.CreateLogger<Program>();
         logger.LogInformation("--- Scenario 5: Custom C# Transformer ---");
 
+        var engine = new PipelineEngine(loggerFactory);
+
         // Source: 3 Fake rows
         var reader = new GenerateReader("3", "", new GenerateReaderOptions { RowCount = 3 });
         await reader.OpenAsync(CancellationToken.None);
@@ -225,7 +229,7 @@ class Program
 
         // Execute Pipeline
         logger.LogInformation("Running Pipeline with Custom C# Transformer...");
-        await MiniPipeline.RunAsync(
+        await engine.RunAsync(
             reader: reader,
             writer: writer,
             pipeline: new IDataTransformer[] { myCustomTransformer },
@@ -266,6 +270,8 @@ class Program
         var logger = loggerFactory.CreateLogger<Program>();
         logger.LogInformation("--- Scenario 6: Pure LINQ Object Generator ---");
 
+        var engine = new PipelineEngine(loggerFactory);
+
         // 1. We create a generic C# Enumerable using standard code
         var myMemoryDataList = Enumerable.Range(1, 4).Select(i => new { ProductId = i, Name = $"Product_{i}", Price = 10.99m * i });
 
@@ -278,7 +284,7 @@ class Program
         await writer.InitializeAsync(reader.Columns!, CancellationToken.None);
 
         logger.LogInformation("Transferring LINQ sequence to CsvDataWriter...");
-        await MiniPipeline.RunAsync(reader, writer, pipeline: null, batchSize: 2, ct: CancellationToken.None);
+        await engine.RunAsync(reader, writer, batchSize: 2, ct: CancellationToken.None);
     }
 
     /// <summary>

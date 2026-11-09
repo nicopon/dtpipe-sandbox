@@ -110,9 +110,7 @@ else
          --fake \"amount:finance.amount\" \
          --fake \"country:address.countrycode\" \
          --drop \"GenerateIndex\" \
-         --output '$PARQUET_FILE' \
-         --no-schema-validation \
-         --strategy Recreate"
+         --output '$PARQUET_FILE'"
 
     echo -e "${YELLOW}Running: dtpipe generate${NC}"
      docker_exec_dtpipe "$local_gen_cmd"

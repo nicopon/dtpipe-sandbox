@@ -247,8 +247,7 @@ run_pipeline "B01" "Parquet → PostgreSQL" \
 run_pipeline "B02" "PostgreSQL → Parquet" \
       --input "pg:Host=$DB_POSTGRES_HOST;Port=$DB_POSTGRES_PORT;Database=$DB_POSTGRES_DB;Username=$DB_POSTGRES_USER;Password=$DB_POSTGRES_PASSWORD" \
       --query "SELECT * FROM benchmark_source_${SUFFIX}" \
-      --output "/bench/artifacts/dtpipe_bench_pg_to_pq.parquet" \
-      --no-schema-validation
+      --output "/bench/artifacts/dtpipe_bench_pg_to_pq.parquet"
 
 # =============================================================================
 # B03: CSV → SQL Server
@@ -270,8 +269,7 @@ run_pipeline "B03" "CSV → SQL Server" \
 run_pipeline "B04" "SQL Server → CSV" \
       --input "mssql:Server=$DB_MSSQL_HOST,$DB_MSSQL_PORT;Database=$DB_MSSQL_DB;User Id=$DB_MSSQL_USER;Password=$DB_MSSQL_PASSWORD;Encrypt=False" \
       --query "SELECT * FROM benchmark_source_${SUFFIX}" \
-      --output "/bench/artifacts/dtpipe_bench_mssql_to_csv.csv" \
-      --no-schema-validation
+      --output "/bench/artifacts/dtpipe_bench_mssql_to_csv.csv"
 
 # =============================================================================
 # B05: Parquet → Oracle
@@ -295,8 +293,7 @@ run_pipeline "B06" "Oracle → Parquet" \
       --input "ora:Data Source=$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE;User Id=$DB_ORACLE_USER;Password=$DB_ORACLE_PASSWORD" \
       --ora-fetch-size 10485760 \
       --query "SELECT * FROM BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
-      --output "/bench/artifacts/dtpipe_bench_oracle_to_pq.parquet" \
-      --no-schema-validation
+      --output "/bench/artifacts/dtpipe_bench_oracle_to_pq.parquet"
 
 # =============================================================================
 # B07: CSV → PostgreSQL
@@ -315,8 +312,7 @@ run_pipeline "B07" "CSV → PostgreSQL" \
 run_pipeline "B08" "PostgreSQL → CSV" \
       --input "pg:Host=$DB_POSTGRES_HOST;Port=$DB_POSTGRES_PORT;Database=$DB_POSTGRES_DB;Username=$DB_POSTGRES_USER;Password=$DB_POSTGRES_PASSWORD" \
       --query "SELECT * FROM benchmark_source_${SUFFIX}" \
-      --output "/bench/artifacts/dtpipe_bench_pg_to_csv.csv" \
-      --no-schema-validation
+      --output "/bench/artifacts/dtpipe_bench_pg_to_csv.csv"
 
 # =============================================================================
 # B09: Parquet → SQL Server
@@ -335,8 +331,7 @@ run_pipeline "B09" "Parquet → SQL Server" \
 run_pipeline "B10" "SQL Server → Parquet" \
       --input "mssql:Server=$DB_MSSQL_HOST,$DB_MSSQL_PORT;Database=$DB_MSSQL_DB;User Id=$DB_MSSQL_USER;Password=$DB_MSSQL_PASSWORD;Encrypt=False" \
       --query "SELECT * FROM benchmark_source_${SUFFIX}" \
-      --output "/bench/artifacts/dtpipe_bench_mssql_to_pq.parquet" \
-      --no-schema-validation
+      --output "/bench/artifacts/dtpipe_bench_mssql_to_pq.parquet"
 
 # =============================================================================
 # B11: CSV → Oracle
@@ -357,8 +352,7 @@ run_pipeline "B12" "Oracle → CSV" \
       --input "ora:Data Source=$DB_ORACLE_HOST:$DB_ORACLE_PORT/$DB_ORACLE_SERVICE;User Id=$DB_ORACLE_USER;Password=$DB_ORACLE_PASSWORD" \
       --ora-fetch-size 10485760 \
       --query "SELECT * FROM BENCHMARK_SOURCE_${SUFFIX_UPPER}" \
-      --output "/bench/artifacts/dtpipe_bench_oracle_to_csv.csv" \
-      --no-schema-validation
+      --output "/bench/artifacts/dtpipe_bench_oracle_to_csv.csv"
 
 DB_POSTGRES_READER_UPPER=$(echo "${DB_POSTGRES_READER_USER:-bench_reader}" | tr '[:lower:]' '[:upper:]')
 DB_ORACLE_USER_UPPER=$(echo "${DB_ORACLE_USER:-testuser}" | tr '[:lower:]' '[:upper:]')

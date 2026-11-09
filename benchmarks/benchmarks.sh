@@ -282,9 +282,9 @@ INGESTR_LATEST=$(_resolve_tag "bruin-data/ingestr" || echo "")
 # These are a floor, not a pin: an online run always takes the latest tag above.
 # Refreshed 2026-09-12 — they had drifted four dtpipe minors behind, so an offline
 # run silently benchmarked versions nobody was comparing.
-DTPIPE_LATEST="${DTPIPE_LATEST:-v1.8.1}"
-SLING_LATEST="${SLING_LATEST:-v1.6.2}"
-INGESTR_LATEST="${INGESTR_LATEST:-v1.1.54}"
+DTPIPE_LATEST="${DTPIPE_LATEST:-v1.15.1}"
+SLING_LATEST="${SLING_LATEST:-v1.6.6}"
+INGESTR_LATEST="${INGESTR_LATEST:-v1.1.84}"
 
 echo "  dtpipe version:  $DTPIPE_LATEST"
 echo "  sling version:   $SLING_LATEST"
