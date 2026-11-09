@@ -21,6 +21,15 @@ dist/
 *.user
 *.sln.docstates
 
+# AI Agents & Assistants
+.claude/
+.cursor/
+.windsurf/
+.gemini/
+.antigravity/
+.cline/
+.roo/
+
 # OS
 .DS_Store
 Thumbs.db

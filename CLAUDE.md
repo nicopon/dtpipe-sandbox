@@ -1,8 +1,26 @@
-# CLAUDE.md
+# AGENTS.md / CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents (Claude Code, OpenAI Codex, Cursor, Gemini, Copilot, Antigravity, etc.) when working with code in this repository.
 
 User-facing documentation: [README.md](README.md) · [benchmarks/README.md](benchmarks/README.md). This file captures only design intent and non-obvious constraints that require reading multiple source files to understand.
+
+---
+
+## Key commands
+
+### Sample project (.NET)
+- Build solution: `dotnet build DtPipe.Sandbox.slnx`
+- Run sample scenarios: `dotnet run --project src/DtPipe.Sample/DtPipe.Sample.csproj`
+
+### Infrastructure
+- Start integration test databases: `./infra/start_infra.sh`
+- Stop integration test databases: `./infra/stop_infra.sh`
+
+### Benchmark suite
+- Run full benchmark: `bash benchmarks/benchmarks.sh`
+- Quick smoke test (fast validation): `bash benchmarks/benchmarks.sh --rows 100 --repetitions 1`
+- Test a specific tool: `bash benchmarks/benchmarks.sh --tool dtpipe --rows 100 --repetitions 1`
+- Clean benchmark artifacts: `bash benchmarks/benchmarks.sh --clean-artifacts`
 
 ---
 
