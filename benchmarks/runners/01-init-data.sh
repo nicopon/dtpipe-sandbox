@@ -279,6 +279,9 @@ IF NOT EXISTS (SELECT name FROM sys.database_principals WHERE name = '${DB_MSSQL
 GO
 ALTER ROLE db_owner ADD MEMBER [${DB_MSSQL_WRITER_USER:-bench_writer}];
 GO
+IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = '${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}')
+    EXEC('CREATE SCHEMA [${DB_MSSQL_WRITER_SCHEMA:-bench_tgt}] AUTHORIZATION [${DB_MSSQL_WRITER_USER:-bench_writer}]');
+GO
 EOF
 if container_exec benchmark-test \
     sqlcmd -C \
