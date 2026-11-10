@@ -430,7 +430,7 @@ run_pipeline "B15" "Oracle → Oracle" \
 #
 # Invariants that keep the four comparable:
 #   - identical source and identical sink;
-#   - "country != ZZZ" is a simple filter (columnar fast path) that keeps every
+#   - "row.country != 'ZZZ'" is a simple filter (columnar fast path) that keeps every
 #     row, so all four scenarios carry the same row count end to end;
 #   - the compute in B18 and B19 is byte-identical and reads the untouched
 #     email column (it runs before --mask in B19);
@@ -453,7 +453,7 @@ run_pipeline --no-verify "B16" "Parquet → null (control, no transformer)" \
 run_pipeline --no-verify "B17" "Parquet → null (columnar chain: fake+filter+mask)" \
       --input "$DTPIPE_TRANSFORM_SOURCE" \
       --fake "name:name.fullName" \
-      --filter "country != ZZZ" \
+      --filter "row.country != 'ZZZ'" \
       --mask "email" \
       --output "null:"
 
@@ -468,7 +468,7 @@ run_pipeline --no-verify "B18" "Parquet → null (row chain: compute)" \
 run_pipeline --no-verify "B19" "Parquet → null (mixed chain: forces row↔columnar bridge)" \
       --input "$DTPIPE_TRANSFORM_SOURCE" \
       --fake "name:name.fullName" \
-      --filter "country != ZZZ" \
+      --filter "row.country != 'ZZZ'" \
       --compute "email:row.email.toLowerCase()" \
       --mask "email" \
       --output "null:"

@@ -63,7 +63,7 @@ ENV PATH=$ORACLE_HOME:/opt/mssql-tools18/bin:$PATH
 RUN echo $ORACLE_HOME > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 
 # 4. Download and install dtpipe standalone binary from GitHub releases
-ARG DTPIPE_VERSION=v1.15.1
+ARG DTPIPE_VERSION=v1.15.2
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then DTPIPE_ARCH="x64"; else DTPIPE_ARCH="arm64"; fi && \
     curl -fsSL -o dtpipe.tar.gz "https://github.com/nicopon/dtpipe/releases/download/${DTPIPE_VERSION}/dtpipe-linux-${DTPIPE_ARCH}.tar.gz" && \
