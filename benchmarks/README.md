@@ -237,7 +237,7 @@ B18 - B16                    cost of the compute (JavaScript) in row mode
 The control is what makes the other three subtract from something. Without B16 the
 remaining numbers are totals, and a total answers no question.
 
-What keeps the four comparable: same source and same sink; `country != ZZZ` is a
+What keeps the four comparable: same source and same sink; `row.country != 'ZZZ'` is a
 simple filter (columnar fast path) that keeps every row, so all four carry the same
 row count end to end; the `--compute` in B18 and B19 is byte-identical and reads the
 untouched `email` column; no scenario adds or drops a column.
