@@ -397,6 +397,12 @@ for _t in "${ALL_TOOLS[@]}"; do
 done
 rm -f "$ARTIFACTS_DIR/reports/"*.md "$ARTIFACTS_DIR/reports/"*.json 2>/dev/null || true
 
+# Verification failures of this run. Each runner appends to it through lib/verify.sh;
+# the verdict is read after the report, never inside the series.
+VERIFY_FAILURES_FILE="$ARTIFACTS_DIR/.verify_failures"
+export VERIFY_FAILURES_FILE
+rm -f "$VERIFY_FAILURES_FILE"
+
 for tool in "${TOOLS[@]}"; do
     echo ""
     echo -e "${GREEN}────────────────────────────────────────────────${NC}"
@@ -433,6 +439,13 @@ if [[ -f "$REPORT_SCRIPT" ]]; then
         echo -e "${RED}Error while generating report.${NC}"
 else
     echo -e "${YELLOW}Warning: 04-report.sh not found — report not generated.${NC}"
+fi
+
+# A run with a failed verification never ends on the success banner.
+if [[ -s "$VERIFY_FAILURES_FILE" ]]; then
+    echo -e "${RED}Verification failed for $(wc -l < "$VERIFY_FAILURES_FILE" | tr -d ' ') scenario(s). Their results are not verified:${NC}"
+    sed 's/^/  /' "$VERIFY_FAILURES_FILE"
+    exit 1
 fi
 
 echo ""

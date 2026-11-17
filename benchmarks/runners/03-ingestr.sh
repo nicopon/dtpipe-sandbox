@@ -16,6 +16,7 @@ source "$LIB_DIR/container-runtime.sh"
 init_container_runtime || exit 1
 source "$LIB_DIR/mem-watcher.sh"
 source "$LIB_DIR/stats.sh"
+source "$LIB_DIR/verify.sh"
 
 # Default values
 BENCHMARK_ROWS=1000000
@@ -185,7 +186,7 @@ RUNNER_FOOTER
 
            # Verify target data matches source (run inside benchmark-test container)
     if [[ "$STATS_LAST_COUNT" -gt 0 ]]; then
-        container_exec benchmark-test /opt/venv/pandas/bin/python3 /bench/scripts/verify_data.py "ingestr" "$bench_id" "$BENCHMARK_ROWS" || true
+        verify_target "ingestr" "$bench_id"
     fi
 }
 
