@@ -62,18 +62,21 @@ ENV PATH=$ORACLE_HOME:/opt/mssql-tools18/bin:$PATH
 # Configure the dynamic linker
 RUN echo $ORACLE_HOME > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 
-# 4. Download and install dtpipe standalone binary from GitHub releases
-ARG DTPIPE_VERSION=v1.15.2
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then DTPIPE_ARCH="x64"; else DTPIPE_ARCH="arm64"; fi && \
-    curl -fsSL -o dtpipe.tar.gz "https://github.com/nicopon/dtpipe/releases/download/${DTPIPE_VERSION}/dtpipe-linux-${DTPIPE_ARCH}.tar.gz" && \
-    tar -zxvf dtpipe.tar.gz && \
-    chmod +x dtpipe && \
-    mv dtpipe /usr/local/bin/dtpipe && \
-    rm dtpipe.tar.gz
+# 4. Python venvs. pandas is always installed: every runner validates its output
+# through /opt/venv/pandas/bin/python3 verify_data.py. meltano is driven only by
+# 03-meltano.sh and is skipped unless the run selects it (INSTALL_MELTANO=0).
+# Both sit above the version ARGs, so a version bump does not rebuild them.
+RUN python3 -m venv /opt/venv/pandas && \
+    /opt/venv/pandas/bin/pip install --no-cache-dir --default-timeout=120 --retries=5 pyarrow pandas psycopg2-binary pyodbc oracledb sqlalchemy pymssql duckdb
+
+ARG INSTALL_MELTANO=1
+RUN if [ "$INSTALL_MELTANO" = "1" ]; then \
+        python3 -m venv /opt/venv/meltano && \
+        /opt/venv/meltano/bin/pip install --no-cache-dir --default-timeout=120 --retries=5 meltano duckdb; \
+    fi
 
 # 5. Install Sling & ingestr (native Go binaries)
-ARG SLING_VERSION=v1.6.6
+ARG SLING_VERSION=v1.6.7
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then SLING_ARCH="linux_amd64"; else SLING_ARCH="linux_arm64"; fi && \
     curl -fsSL -o sling.tar.gz "https://github.com/slingdata-io/sling-cli/releases/download/${SLING_VERSION}/sling_${SLING_ARCH}.tar.gz" && \
@@ -81,7 +84,7 @@ RUN ARCH=$(uname -m) && \
     mv sling /usr/local/bin/sling && \
     rm sling.tar.gz
 
-ARG INGESTR_VERSION=v1.1.84
+ARG INGESTR_VERSION=v1.1.92
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then INGESTR_ARCH="x86_64"; else INGESTR_ARCH="arm64"; fi && \
     curl -fsSL -o ingestr.tar.gz "https://github.com/bruin-data/ingestr/releases/download/${INGESTR_VERSION}/ingestr_Linux_${INGESTR_ARCH}.tar.gz" && \
@@ -90,12 +93,17 @@ RUN ARCH=$(uname -m) && \
     mv ingestr /usr/local/bin/ingestr && \
     rm ingestr.tar.gz
 
-# 6. Initialize isolated Python virtual environments
-RUN python3 -m venv /opt/venv/pandas && \
-    /opt/venv/pandas/bin/pip install --no-cache-dir pyarrow pandas psycopg2-binary pyodbc oracledb sqlalchemy pymssql duckdb
-
-RUN python3 -m venv /opt/venv/meltano && \
-    /opt/venv/meltano/bin/pip install --no-cache-dir meltano duckdb
+# 6. Download and install dtpipe standalone binary from GitHub releases. Last on
+# purpose: it is the component that changes between runs, so bumping it rebuilds
+# only this layer.
+ARG DTPIPE_VERSION=v1.17.0
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then DTPIPE_ARCH="x64"; else DTPIPE_ARCH="arm64"; fi && \
+    curl -fsSL -o dtpipe.tar.gz "https://github.com/nicopon/dtpipe/releases/download/${DTPIPE_VERSION}/dtpipe-linux-${DTPIPE_ARCH}.tar.gz" && \
+    tar -zxvf dtpipe.tar.gz && \
+    chmod +x dtpipe && \
+    mv dtpipe /usr/local/bin/dtpipe && \
+    rm dtpipe.tar.gz
 
 # Set workdir mapping target
 WORKDIR /bench

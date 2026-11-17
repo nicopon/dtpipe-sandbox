@@ -36,7 +36,9 @@ BENCHMARK_ROWS=1000000
 BENCHMARK_REPETITIONS=3
 BENCHMARK_SCOPE="all"          # all | transfer | transform | B01 … B19 | comma-separated ids
 BENCHMARK_TOOL="default"       # default | all | one tool | comma-separated list
+DTPIPE_PIN=""                  # --dtpipe-version: pin the dtpipe release instead of the latest
 SKIP_INFRA=false               # --skip-infra  → skip DB infrastructure startup
+SKIP_DATA_INIT=false           # --skip-data-init → keep the source data already loaded
 CLEAN_ARTIFACTS=false          # --clean-artifacts → wipe tool output files before running
 INFRA_COMPOSE_FILE=""          # --infra-compose FILE → custom infra compose path
 
@@ -89,8 +91,12 @@ Options:
                           dtpipe             a single tool
                           dtpipe,ingestr     a comma-separated list
                           Names: dtpipe pandas meltano sling ingestr native
+  --dtpipe-version TAG    Build the image with this dtpipe release tag, e.g. v1.15.2
+                          (default: latest GitHub release)
   --skip-infra            Do not start DB infrastructure
                           (use when containers are already running)
+  --skip-data-init        Reuse the source data already loaded for --rows, instead of
+                          reloading it with the binary under test (fixed inputs for A/B)
    --infra-compose FILE    Path to the infrastructure docker-compose file
                            (default: infra/docker-compose.yml)
   --clean-artifacts       Remove previous tool output files before running
@@ -135,7 +141,9 @@ while [[ $# -gt 0 ]]; do
         --repetitions)      BENCHMARK_REPETITIONS="$2";  shift 2 ;;
         --scope)            BENCHMARK_SCOPE="$2";         shift 2 ;;
         --tool)             BENCHMARK_TOOL="$2";          shift 2 ;;
+        --dtpipe-version)   DTPIPE_PIN="$2";              shift 2 ;;
         --skip-infra)       SKIP_INFRA=true;              shift   ;;
+        --skip-data-init)   SKIP_DATA_INIT=true;          shift   ;;
         --clean-artifacts)  CLEAN_ARTIFACTS=true;         shift   ;;
         --infra-compose)    INFRA_COMPOSE_FILE="$2";      shift 2 ;;
         -h|--help)          show_help; exit 0 ;;
@@ -263,6 +271,42 @@ for _c in benchmark-test; do
     "$CONTAINER_CMD" rm -f "$_c" 2>/dev/null || true
 done
 
+# ALL_TOOLS is the validation set: every name --tool accepts, so a typo is still
+# rejected rather than silently skipped. It is checked here, before the image is
+# built, so a typo costs no build time.
+ALL_TOOLS=("dtpipe" "pandas" "meltano" "sling" "ingestr" "native")
+
+# DEFAULT_TOOLS is what a bare run measures. pandas and meltano sit outside it
+# because they answer a different question, not because they lose: a Singer tap
+# serialises every record to JSON over a pipe, and pandas is an analysis library
+# rather than a transfer tool. Both gaps are architectural, stable, and already
+# measured (2026-09-12: x9 to x200) -- re-measuring them every run bought nothing
+# and cost 68 % of the wall clock. Run them with --tool meltano, or --tool all.
+DEFAULT_TOOLS=("dtpipe" "sling" "ingestr" "native")
+
+if [[ "$BENCHMARK_TOOL" == "default" ]]; then
+    TOOLS=("${DEFAULT_TOOLS[@]}")
+elif [[ "$BENCHMARK_TOOL" == "all" ]]; then
+    TOOLS=("${ALL_TOOLS[@]}")
+else
+    # Comma-separated list, same grammar as --scope. A typo used to degrade
+    # silently into "03-<typo>.sh not found - skipped", so validate instead.
+    IFS=',' read -ra TOOLS <<< "$BENCHMARK_TOOL"
+    for _t in "${TOOLS[@]}"; do
+        _known=false
+        for _k in "${ALL_TOOLS[@]}"; do [[ "$_t" == "$_k" ]] && _known=true; done
+        if [[ "$_known" != true ]]; then
+            echo -e "${RED}Unknown tool: '$_t'${NC}"
+            echo -e "${RED}Known tools: ${ALL_TOOLS[*]}${NC}"
+            exit 1
+        fi
+    done
+fi
+
+# The meltano venv is built only when a selected tool needs it (see the Dockerfile).
+INSTALL_MELTANO=0
+for _t in "${TOOLS[@]}"; do [[ "$_t" == "meltano" ]] && INSTALL_MELTANO=1; done
+
 # Resolve latest tool versions from GitHub releases
 echo -e "${YELLOW}Resolving latest tool versions from GitHub...${NC}"
 _resolve_tag() {
@@ -274,17 +318,17 @@ _resolve_tag() {
     fi
 }
 
-DTPIPE_LATEST=$(_resolve_tag "nicopon/dtpipe" || echo "")
+DTPIPE_LATEST="${DTPIPE_PIN:-$(_resolve_tag "nicopon/dtpipe" || echo "")}"
 SLING_LATEST=$(_resolve_tag "slingdata-io/sling-cli" || echo "")
 INGESTR_LATEST=$(_resolve_tag "bruin-data/ingestr" || echo "")
 
 # Fallback to default pinned versions if resolution failed (e.g. offline).
 # These are a floor, not a pin: an online run always takes the latest tag above.
-# Refreshed 2026-09-12 — they had drifted four dtpipe minors behind, so an offline
-# run silently benchmarked versions nobody was comparing.
-DTPIPE_LATEST="${DTPIPE_LATEST:-v1.15.2}"
-SLING_LATEST="${SLING_LATEST:-v1.6.6}"
-INGESTR_LATEST="${INGESTR_LATEST:-v1.1.84}"
+# Refreshed 2026-11-17 — an offline run silently benchmarks versions nobody is
+# comparing, so these track the latest releases.
+DTPIPE_LATEST="${DTPIPE_LATEST:-v1.17.0}"
+SLING_LATEST="${SLING_LATEST:-v1.6.7}"
+INGESTR_LATEST="${INGESTR_LATEST:-v1.1.92}"
 
 echo "  dtpipe version:  $DTPIPE_LATEST"
 echo "  sling version:   $SLING_LATEST"
@@ -294,7 +338,8 @@ echo ""
 DOCKER_COMPOSE_CMD build \
     --build-arg DTPIPE_VERSION="$DTPIPE_LATEST" \
     --build-arg SLING_VERSION="$SLING_LATEST" \
-    --build-arg INGESTR_VERSION="$INGESTR_LATEST" || {
+    --build-arg INGESTR_VERSION="$INGESTR_LATEST" \
+    --build-arg INSTALL_MELTANO="$INSTALL_MELTANO" || {
     echo -e "${RED}Error while building containers.${NC}"
     exit 1
 }
@@ -324,7 +369,9 @@ echo -e "${CYAN}  Step 1: Source data initialization${NC}"
 echo -e "${CYAN}══════════════════════════════════════${NC}"
 
 INIT_SCRIPT="$SCRIPT_DIR/runners/01-init-data.sh"
-if [[ -f "$INIT_SCRIPT" ]]; then
+if [[ "$SKIP_DATA_INIT" == "true" ]]; then
+    echo -e "${YELLOW}--skip-data-init: reusing the source data already loaded for ${BENCHMARK_ROWS} rows.${NC}"
+elif [[ -f "$INIT_SCRIPT" ]]; then
     bash "$INIT_SCRIPT" --rows "$BENCHMARK_ROWS" || {
         echo -e "${RED}Error during data initialization.${NC}"
         exit 1
@@ -340,37 +387,6 @@ echo ""
 echo -e "${CYAN}══════════════════════════════════════${NC}"
 echo -e "${CYAN}  Step 2: Benchmarks${NC}"
 echo -e "${CYAN}══════════════════════════════════════${NC}"
-
-# ALL_TOOLS is the validation set: every name --tool accepts, so a typo is still
-# rejected rather than silently skipped.
-ALL_TOOLS=("dtpipe" "pandas" "meltano" "sling" "ingestr" "native")
-
-# DEFAULT_TOOLS is what a bare run measures. pandas and meltano sit outside it
-# because they answer a different question, not because they lose: a Singer tap
-# serialises every record to JSON over a pipe, and pandas is an analysis library
-# rather than a transfer tool. Both gaps are architectural, stable, and already
-# measured (2026-09-12: x9 to x200) -- re-measuring them every run bought nothing
-# and cost 68 % of the wall clock. Run them with --tool meltano, or --tool all.
-DEFAULT_TOOLS=("dtpipe" "sling" "ingestr" "native")
-
-if [[ "$BENCHMARK_TOOL" == "default" ]]; then
-    TOOLS=("${DEFAULT_TOOLS[@]}")
-elif [[ "$BENCHMARK_TOOL" == "all" ]]; then
-    TOOLS=("${ALL_TOOLS[@]}")
-else
-    # Comma-separated list, same grammar as --scope. A typo used to degrade
-    # silently into "03-<typo>.sh not found - skipped", so validate instead.
-    IFS=',' read -ra TOOLS <<< "$BENCHMARK_TOOL"
-    for _t in "${TOOLS[@]}"; do
-        _known=false
-        for _k in "${ALL_TOOLS[@]}"; do [[ "$_t" == "$_k" ]] && _known=true; done
-        if [[ "$_known" != true ]]; then
-            echo -e "${RED}Unknown tool: '$_t'${NC}"
-            echo -e "${RED}Known tools: ${ALL_TOOLS[*]}${NC}"
-            exit 1
-        fi
-    done
-fi
 
 # 04-report.sh builds the comparative table from whichever per-tool JSON files sit
 # on disk, and those survive a run. Without this purge a run that measures four
