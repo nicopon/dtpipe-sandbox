@@ -3,7 +3,7 @@
   "configuration": {
     "benchmark_rows": 1000000,
     "repetitions": 5,
-    "date": "2026-11-11T10:40:30Z",
+    "date": "2026-11-17T10:11:15Z",
     "host": {
       "os": "Darwin",
       "arch": "arm64",
@@ -12,16 +12,17 @@
       "ram": "64 GiB"
     },
     "versions": {
-      "dtpipe": "1.15.2+cac1e92b5e4b185bcfa57e77b76e2bb2c80b2b24",
+      "dtpipe": "1.15.2+b9cdca15070661d5524e74c799a92733dc998446",
       "pandas": "2.3.3",
-      "sqlalchemy": "2.0.57",
-      "meltano": "4.4.1",
-      "sling": "1.6.6",
-      "ingestr": "v1.1.87",
+      "sqlalchemy": "2.0.58",
+      "meltano": "Unknown",
+      "sling": "1.6.7",
+      "ingestr": "v1.1.92",
       "psql": "14.24",
       "bcp": "18.7.0001.1",
       "sqlplus": "19.19.0.0.0"
-    }
+    },
+    "source": "interleaved A/B: 5 rounds, one repetition each, dtpipe release v1.15.2"
   },
   "benchmarks": {
     "B01": {
@@ -29,12 +30,12 @@
       "tools": {
         "dtpipe": {
           "description": "Parquet → PostgreSQL",
-          "avg_duration_ms": 2233,
-          "min_duration_ms": 2085,
-          "stddev_duration_ms": 96.2,
+          "avg_duration_ms": 2382,
+          "min_duration_ms": 2118,
+          "stddev_duration_ms": 224.8,
           "runs": 5,
-          "avg_peak_mem_mb": 174,
-          "min_peak_mem_mb": 161
+          "avg_peak_mem_mb": 283,
+          "min_peak_mem_mb": 266
         }
       }
     },
@@ -43,12 +44,12 @@
       "tools": {
         "dtpipe": {
           "description": "PostgreSQL → Parquet",
-          "avg_duration_ms": 2238,
-          "min_duration_ms": 2007,
-          "stddev_duration_ms": 166,
+          "avg_duration_ms": 2344,
+          "min_duration_ms": 2272,
+          "stddev_duration_ms": 81.4,
           "runs": 5,
-          "avg_peak_mem_mb": 128,
-          "min_peak_mem_mb": 114
+          "avg_peak_mem_mb": 284,
+          "min_peak_mem_mb": 276
         }
       }
     },
@@ -57,12 +58,12 @@
       "tools": {
         "dtpipe": {
           "description": "CSV → SQL Server",
-          "avg_duration_ms": 16380,
-          "min_duration_ms": 16180,
-          "stddev_duration_ms": 208.5,
+          "avg_duration_ms": 16521,
+          "min_duration_ms": 16089,
+          "stddev_duration_ms": 255.5,
           "runs": 5,
-          "avg_peak_mem_mb": 140,
-          "min_peak_mem_mb": 118
+          "avg_peak_mem_mb": 289,
+          "min_peak_mem_mb": 243
         }
       }
     },
@@ -71,12 +72,12 @@
       "tools": {
         "dtpipe": {
           "description": "SQL Server → CSV",
-          "avg_duration_ms": 2104,
-          "min_duration_ms": 1949,
-          "stddev_duration_ms": 157,
+          "avg_duration_ms": 2133,
+          "min_duration_ms": 2026,
+          "stddev_duration_ms": 65.5,
           "runs": 5,
-          "avg_peak_mem_mb": 118,
-          "min_peak_mem_mb": 25
+          "avg_peak_mem_mb": 287,
+          "min_peak_mem_mb": 95
         }
       }
     },
@@ -85,12 +86,12 @@
       "tools": {
         "dtpipe": {
           "description": "Parquet → Oracle",
-          "avg_duration_ms": 3311,
-          "min_duration_ms": 3235,
-          "stddev_duration_ms": 84.7,
+          "avg_duration_ms": 3669,
+          "min_duration_ms": 3405,
+          "stddev_duration_ms": 214.6,
           "runs": 5,
-          "avg_peak_mem_mb": 255,
-          "min_peak_mem_mb": 222
+          "avg_peak_mem_mb": 392,
+          "min_peak_mem_mb": 352
         }
       }
     },
@@ -99,12 +100,12 @@
       "tools": {
         "dtpipe": {
           "description": "Oracle → Parquet",
-          "avg_duration_ms": 2368,
-          "min_duration_ms": 2225,
-          "stddev_duration_ms": 141.9,
+          "avg_duration_ms": 2596,
+          "min_duration_ms": 2440,
+          "stddev_duration_ms": 123.4,
           "runs": 5,
-          "avg_peak_mem_mb": 157,
-          "min_peak_mem_mb": 137
+          "avg_peak_mem_mb": 309,
+          "min_peak_mem_mb": 299
         }
       }
     },
@@ -113,12 +114,12 @@
       "tools": {
         "dtpipe": {
           "description": "CSV → PostgreSQL",
-          "avg_duration_ms": 1643,
-          "min_duration_ms": 1620,
-          "stddev_duration_ms": 22.7,
+          "avg_duration_ms": 1626,
+          "min_duration_ms": 1612,
+          "stddev_duration_ms": 18.1,
           "runs": 5,
-          "avg_peak_mem_mb": 147,
-          "min_peak_mem_mb": 142
+          "avg_peak_mem_mb": 247,
+          "min_peak_mem_mb": 225
         }
       }
     },
@@ -127,12 +128,12 @@
       "tools": {
         "dtpipe": {
           "description": "PostgreSQL → CSV",
-          "avg_duration_ms": 2135,
-          "min_duration_ms": 1929,
-          "stddev_duration_ms": 197.2,
+          "avg_duration_ms": 2082,
+          "min_duration_ms": 1995,
+          "stddev_duration_ms": 69.2,
           "runs": 5,
-          "avg_peak_mem_mb": 129,
-          "min_peak_mem_mb": 82
+          "avg_peak_mem_mb": 291,
+          "min_peak_mem_mb": 209
         }
       }
     },
@@ -141,12 +142,12 @@
       "tools": {
         "dtpipe": {
           "description": "Parquet → SQL Server",
-          "avg_duration_ms": 11521,
-          "min_duration_ms": 10975,
-          "stddev_duration_ms": 313.6,
+          "avg_duration_ms": 11882,
+          "min_duration_ms": 11630,
+          "stddev_duration_ms": 156.0,
           "runs": 5,
-          "avg_peak_mem_mb": 259,
-          "min_peak_mem_mb": 119
+          "avg_peak_mem_mb": 394,
+          "min_peak_mem_mb": 278
         }
       }
     },
@@ -155,12 +156,12 @@
       "tools": {
         "dtpipe": {
           "description": "SQL Server → Parquet",
-          "avg_duration_ms": 2234,
-          "min_duration_ms": 2012,
-          "stddev_duration_ms": 144.7,
+          "avg_duration_ms": 2297,
+          "min_duration_ms": 2199,
+          "stddev_duration_ms": 82.5,
           "runs": 5,
-          "avg_peak_mem_mb": 139,
-          "min_peak_mem_mb": 124
+          "avg_peak_mem_mb": 299,
+          "min_peak_mem_mb": 275
         }
       }
     },
@@ -169,12 +170,12 @@
       "tools": {
         "dtpipe": {
           "description": "CSV → Oracle",
-          "avg_duration_ms": 2316,
-          "min_duration_ms": 2232,
-          "stddev_duration_ms": 122.9,
+          "avg_duration_ms": 2428,
+          "min_duration_ms": 2337,
+          "stddev_duration_ms": 87.1,
           "runs": 5,
-          "avg_peak_mem_mb": 175,
-          "min_peak_mem_mb": 139
+          "avg_peak_mem_mb": 233,
+          "min_peak_mem_mb": 1
         }
       }
     },
@@ -183,12 +184,12 @@
       "tools": {
         "dtpipe": {
           "description": "Oracle → CSV",
-          "avg_duration_ms": 2125,
-          "min_duration_ms": 2059,
-          "stddev_duration_ms": 46.8,
+          "avg_duration_ms": 2248,
+          "min_duration_ms": 2224,
+          "stddev_duration_ms": 23.8,
           "runs": 5,
-          "avg_peak_mem_mb": 142,
-          "min_peak_mem_mb": 112
+          "avg_peak_mem_mb": 320,
+          "min_peak_mem_mb": 308
         }
       }
     },
@@ -197,12 +198,12 @@
       "tools": {
         "dtpipe": {
           "description": "PostgreSQL → PostgreSQL",
-          "avg_duration_ms": 2019,
-          "min_duration_ms": 1910,
-          "stddev_duration_ms": 115.7,
+          "avg_duration_ms": 2312,
+          "min_duration_ms": 2132,
+          "stddev_duration_ms": 157.6,
           "runs": 5,
-          "avg_peak_mem_mb": 79,
-          "min_peak_mem_mb": 78
+          "avg_peak_mem_mb": 188,
+          "min_peak_mem_mb": 186
         }
       }
     },
@@ -211,12 +212,12 @@
       "tools": {
         "dtpipe": {
           "description": "SQL Server → SQL Server",
-          "avg_duration_ms": 11633,
-          "min_duration_ms": 11493,
-          "stddev_duration_ms": 148.1,
+          "avg_duration_ms": 11877,
+          "min_duration_ms": 11780,
+          "stddev_duration_ms": 135.0,
           "runs": 5,
-          "avg_peak_mem_mb": 101,
-          "min_peak_mem_mb": 96
+          "avg_peak_mem_mb": 214,
+          "min_peak_mem_mb": 202
         }
       }
     },
@@ -225,12 +226,12 @@
       "tools": {
         "dtpipe": {
           "description": "Oracle → Oracle",
-          "avg_duration_ms": 3509,
-          "min_duration_ms": 3458,
-          "stddev_duration_ms": 60.6,
+          "avg_duration_ms": 3741,
+          "min_duration_ms": 3667,
+          "stddev_duration_ms": 87.6,
           "runs": 5,
-          "avg_peak_mem_mb": 179,
-          "min_peak_mem_mb": 162
+          "avg_peak_mem_mb": 289,
+          "min_peak_mem_mb": 280
         }
       }
     },
@@ -239,12 +240,12 @@
       "tools": {
         "dtpipe": {
           "description": "Parquet → null (control, no transformer)",
-          "avg_duration_ms": 1282,
-          "min_duration_ms": 1239,
-          "stddev_duration_ms": 29.8,
+          "avg_duration_ms": 1355,
+          "min_duration_ms": 1200,
+          "stddev_duration_ms": 160.0,
           "runs": 5,
-          "avg_peak_mem_mb": 152,
-          "min_peak_mem_mb": 131
+          "avg_peak_mem_mb": 260,
+          "min_peak_mem_mb": 237
         }
       }
     },
@@ -253,12 +254,12 @@
       "tools": {
         "dtpipe": {
           "description": "Parquet → null (columnar chain: fake+filter+mask)",
-          "avg_duration_ms": 2176,
-          "min_duration_ms": 2016,
-          "stddev_duration_ms": 109,
+          "avg_duration_ms": 2273,
+          "min_duration_ms": 2230,
+          "stddev_duration_ms": 50.4,
           "runs": 5,
-          "avg_peak_mem_mb": 142,
-          "min_peak_mem_mb": 128
+          "avg_peak_mem_mb": 247,
+          "min_peak_mem_mb": 242
         }
       }
     },
@@ -267,12 +268,12 @@
       "tools": {
         "dtpipe": {
           "description": "Parquet → null (row chain: compute)",
-          "avg_duration_ms": 7993,
-          "min_duration_ms": 7901,
-          "stddev_duration_ms": 83.6,
+          "avg_duration_ms": 8246,
+          "min_duration_ms": 8142,
+          "stddev_duration_ms": 102.9,
           "runs": 5,
-          "avg_peak_mem_mb": 187,
-          "min_peak_mem_mb": 179
+          "avg_peak_mem_mb": 285,
+          "min_peak_mem_mb": 260
         }
       }
     },
@@ -281,12 +282,12 @@
       "tools": {
         "dtpipe": {
           "description": "Parquet → null (mixed chain: forces row↔columnar bridge)",
-          "avg_duration_ms": 9625,
-          "min_duration_ms": 9526,
-          "stddev_duration_ms": 84.5,
+          "avg_duration_ms": 9940,
+          "min_duration_ms": 9820,
+          "stddev_duration_ms": 76.8,
           "runs": 5,
-          "avg_peak_mem_mb": 168,
-          "min_peak_mem_mb": 159
+          "avg_peak_mem_mb": 265,
+          "min_peak_mem_mb": 229
         }
       }
     }
