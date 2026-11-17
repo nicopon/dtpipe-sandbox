@@ -139,17 +139,3 @@ cd infra/
 ./start_infra.sh    # start (idempotent — skips already-healthy containers)
 ./stop_infra.sh     # stop
 ```
-
----
-
-## CLI dev loop — local dtpipe package
-
-The `benchmark-dtpipe` container installs the CLI from `benchmarks/artifacts/`.
-To benchmark a local build:
-
-1. Build the CLI package:
-    ```bash
-    dotnet pack src/DtPipe/DtPipe.csproj -c Release -o ./nuget-packages
-    ```
-2. Copy the `.nupkg` to `benchmarks/artifacts/`.
-3. Run `benchmarks.sh` — it will automatically install from the local package.

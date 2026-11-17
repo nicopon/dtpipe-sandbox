@@ -63,7 +63,7 @@ selects the correct Oracle binary at build time based on `uname -m`.
 benchmarks/
 ├── benchmarks.sh                       # Main orchestrator (bash — Linux / macOS / Git Bash / WSL)
 ├── README.md                           # This file
-├── lib/                                # Utility library (container-runtime, mem-watcher, stats)
+├── lib/                                # Utility library (container-runtime, mem-watcher, stats, verify)
 ├── runners/                            # Tool-specific benchmark runners
 │    ├── 01-init-data.sh                # Source dataset generation & DB loading
 │    ├── 03-dtpipe.sh                   # dtpipe benchmark runner
@@ -95,8 +95,7 @@ benchmarks/
 │    └── benchmark-test/      Dockerfile  # Unified image containing all runtimes & venvs
 └── scripts/
      ├── benchmarks/
-     │    ├── _pandas_bench.py            # pandas/SQLAlchemy benchmark logic
-     │    └── _sling_bench.py             # Sling benchmark logic
+     │    └── _pandas_bench.py            # pandas/SQLAlchemy benchmark logic
      └── verify_data.py                  # Post-run data integrity checker
 ```
 
@@ -341,22 +340,14 @@ that way is not.
 ### Choosing what to run
 
 The suite serves two jobs, and running the whole field for both is where the time
-goes. Measured share of a full run:
-
-| tool | share of measured time | wins (B01-B15) | usable results |
-|:---|---:|---:|---:|
-| pandas | 40 % | 1 | 14/15 |
-| sling | 29 % | 0 | 15/15 |
-| dtpipe | 20 % | — | 14/15 |
-| ingestr | 6 % | 6 | 11/15 |
-| native | 5 % | 7 | 9/15 |
+goes.
 
 - **Regression gate** — `./benchmarks.sh --tool dtpipe`. The gate compares dtpipe
   against its own past and reads no other tool, so the competitors are pure cost here.
 - **Comparative publication** — run the whole field. The tools that lose are what make
-  the wins mean anything, and `native` in particular is the cheapest row in the table
-  and the most informative: it is not a competitor but the floor, the answer to "how
-  much headroom is there".
+  the wins mean anything, and `native` in particular is cheap to run and the most
+  informative: it is not a competitor but the floor, the answer to "how much headroom
+  is there".
 
 Prune on cost if you must, never on rank. Dropping a tool because it beats dtpipe
 somewhere turns a benchmark into a marketing table.
@@ -400,8 +391,8 @@ catch a factor, never presented as catching a +15 %.
 This is why the complete macro suite stays local. It needs Oracle and SQL Server in
 containers, which free CI runners cannot host — but the methodological reason stands
 on its own: a shared cloud runner has 20-50 % duration variance, so a 15 % gate there
-produces random red, not signal. The micro stage that *does* run in CI lives in the
-dtpipe repo (`tests/scripts/micro_perf_gate.sh`) and applies the same fingerprint
+produces random red, not signal. The micro stage lives in the dtpipe repo
+(`tests/scripts/micro_perf_gate.sh`), runs locally, and applies the same fingerprint
 rule with a deliberately wide threshold.
 
 Exit codes: `0` pass · `1` regression · `2` refused to render a verdict · `3` setup error.
@@ -434,7 +425,8 @@ infra/stop_infra.sh
 
 1. **Isolation**: every tool runs in the same `benchmark-test` container but using isolated Python virtual environments (`/opt/venv/pandas` and `/opt/venv/meltano`) or independent binaries/runtimes to prevent dependency conflicts.
 2. **Timing**: wall-clock time measured via `date +%s%N` (nanoseconds → ms, 1ms precision) inside the container.
-3. **Averaging**: each pipeline is run N times; the mean of successful runs is reported.
+3. **Statistic**: each pipeline is run N times; the minimum is the reference figure, reported with the
+   average and the sample standard deviation (see [Which statistic the report publishes](#which-statistic-the-report-publishes)).
 4. **Data integrity**: after each run `verify_data.py` checks row count + min/max/nulls.
    A mismatch is recorded and printed, the series goes on, and the run exits 1 after the report.
 5. **Network**: benchmark containers join the DB network dynamically at runtime —
