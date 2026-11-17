@@ -1,7 +1,8 @@
-# Benchmark Suite: dtpipe vs the field
+# Benchmark Suite: dtpipe and comparable transfer tools
 
-Competitive performance benchmark comparing **6 data-transfer tools** across
-12 pipeline scenarios (Parquet, CSV, PostgreSQL, SQL Server, Oracle).
+Wall-clock time and peak memory of **6 data-transfer tools** (4 in a default run) across
+19 scenarios: 15 transfers (Parquet, CSV, PostgreSQL, SQL Server, Oracle) and 4
+transformation scenarios that only dtpipe runs.
 
 ---
 
@@ -12,7 +13,7 @@ Competitive performance benchmark comparing **6 data-transfer tools** across
 | **dtpipe** | Streaming ETL/ELT CLI with transformations | C# / .NET |
 | **pandas + SQLAlchemy** | DataFrame-based in-memory data transfer | Python |
 | **Meltano** | Full ELT orchestrator using Singer taps/targets | Python |
-| **Sling** | Lightweight data replication engine | Go |
+| **Sling** | Data replication CLI | Go |
 | **ingestr** | CLI data ingestion tool (by Bruin) | Go |
 | **native** | Direct database CLI tools (bcp, psql, sqlldr, sqlplus) | C / shell |
 
@@ -33,7 +34,7 @@ Host (Linux / macOS / Windows — Git Bash or WSL)
 │   Infrastructure (infra/)                   │  Unified benchmark container        │
 │    ┌────────────────────────────┐           │  ┌───────────────────────────────┐  │
 │    │ dtpipe-integ-postgres      │◄──────────│  │ benchmark-test                │  │
-│    │ dtpipe-integ-mssql         │◄──────────│  │  ├─ dtpipe (.NET 10.0 SDK)    │  │
+│    │ dtpipe-integ-mssql         │◄──────────│  │  ├─ dtpipe (binary)           │  │
 │    │ dtpipe-integ-oracle        │◄──────────│  │  ├─ pandas (/opt/venv/pandas) │  │
 │    └────────────────────────────┘           │  │  ├─ meltano (/opt/venv/meltano)│ │
 │                                             │  │  ├─ sling (Go binary)         │  │
@@ -123,7 +124,7 @@ The script automatically:
 1. Starts the DB infrastructure (`infra/`)
 2. Builds & starts benchmark containers
 3. Initializes the source dataset
-4. Runs all 6 tools across all 12 pipelines
+4. Runs the selected tools (default: dtpipe, sling, ingestr, native) across the selected scenarios
 5. Generates `artifacts/reports/benchmark_report.md`
 
 ---
@@ -138,12 +139,14 @@ The script automatically:
 | `--tool SELECTOR` | `default` | `default` (dtpipe, sling, ingestr, native), `all` (adds pandas and meltano), one tool (`dtpipe`), or a comma-separated list (`dtpipe,ingestr`). Unknown names are rejected. |
 | `--skip-infra` | _(off)_ | Skip DB infrastructure startup |
 | `--infra-compose FILE` | auto | Path to infra docker-compose file |
+| `--dtpipe-version TAG` | latest release | dtpipe release tag installed in the image, e.g. `v1.15.2` |
+| `--skip-data-init` | _(off)_ | Reuse the source data already loaded for `--rows` instead of reloading it with the dtpipe under test. Use it to compare two dtpipe versions on identical inputs. |
 | `--clean-artifacts` | _(off)_ | Wipe previous output files first |
 
 ### Examples
 
 ```bash
-# Full benchmark with defaults (1 000 000 rows, 3 runs, all tools):
+# Full benchmark with defaults (1 000 000 rows, 3 runs, default tools):
 ./benchmarks.sh
 
 # More repetitions — tightens the dispersion, lengthens the run:
@@ -433,6 +436,7 @@ infra/stop_infra.sh
 2. **Timing**: wall-clock time measured via `date +%s%N` (nanoseconds → ms, 1ms precision) inside the container.
 3. **Averaging**: each pipeline is run N times; the mean of successful runs is reported.
 4. **Data integrity**: after each run `verify_data.py` checks row count + min/max/nulls.
+   A mismatch is recorded and printed, the series goes on, and the run exits 1 after the report.
 5. **Network**: benchmark containers join the DB network dynamically at runtime —
    no static network references in the infra compose file are required.
 6. **Memory**: peak cgroup memory delta is polled at ~100 ms intervals by reading

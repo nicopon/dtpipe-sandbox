@@ -1,7 +1,7 @@
 # DtPipe Sandbox: Examples & Benchmarks
 
 This repository provides a self-contained environment for testing and evaluating
-**DtPipe** — a high-performance, streaming ETL/ELT pipeline engine written in C#/.NET —
+**DtPipe** — a streaming ETL/ELT pipeline engine written in C#/.NET —
 without requiring access to the engine's internal source code.
 
 ---
@@ -18,19 +18,15 @@ dtpipe-sandbox/
 │        └── Program.cs
 ├── benchmarks/                    # Dockerized comparative benchmark suite
 │    ├── benchmarks.sh              # Self-contained launcher (Linux / macOS / Git Bash / WSL)
-│    ├── 03-dtpipe.sh               # dtpipe runner
-│    ├── 03-pandas.sh               # pandas + SQLAlchemy runner
-│    ├── 03-meltano.sh              # Meltano (Singer) runner
-│    ├── 03-sling.sh                # Sling runner
-│    ├── 03-ingestr.sh              # ingestr runner
-│    ├── 03-native.sh               # Native DB tools runner
+│    ├── runners/                   # 01-init-data, one 03-<tool> per tool, 04-report, 05-compare-baseline
+│    ├── lib/                       # Shared shell helpers (container runtime, stats, verification)
+│    ├── baselines/                 # Versioned macro baseline read by the performance gate
 │    └── config/
 │        └── docker-compose-benchmark.yml
-├── infra/
-│    ├── docker-compose.yml        # PostgreSQL + SQL Server + Oracle containers
-│    ├── start_infra.sh            # Infrastructure lifecycle helper
-│    └── stop_infra.sh             # Stop infrastructure
-└── tests/                         # (empty, kept for backward compatibility)
+└── infra/
+     ├── docker-compose.yml        # PostgreSQL + SQL Server + Oracle containers
+     ├── start_infra.sh            # Infrastructure lifecycle helper
+     └── stop_infra.sh             # Stop infrastructure
 ```
 
 ---
@@ -69,10 +65,12 @@ To test local engine changes without publishing to NuGet.org:
 
 ---
 
-## 2. Benchmark Suite — Performance Comparison
+## 2. Benchmark Suite
 
-Compares **6 data-transfer tools** across **12 pipeline scenarios** covering
-Parquet, CSV and the three main relational databases (PostgreSQL, SQL Server, Oracle).
+Measures wall-clock time and peak memory of data-transfer tools (4 in a default run,
+6 with `--tool all`) across **19 scenarios**: 15 transfers between Parquet, CSV and three
+relational databases (PostgreSQL, SQL Server, Oracle), and 4 transformation scenarios
+that only dtpipe runs.
 
 | Tool | Description |
 |------|-------------|
@@ -113,6 +111,9 @@ cd benchmarks/
 
 # Single tool, single pipeline, infrastructure already running:
 ./benchmarks.sh --tool dtpipe --scope B01 --skip-infra
+
+# Pin the dtpipe release and reuse the source data already loaded (fixed inputs for an A/B):
+./benchmarks.sh --tool dtpipe --dtpipe-version v1.15.2 --skip-data-init
 
 # Clean previous outputs before running:
 ./benchmarks.sh --clean-artifacts
