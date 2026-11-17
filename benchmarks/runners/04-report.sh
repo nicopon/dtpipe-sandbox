@@ -91,7 +91,10 @@ if container_is_running "benchmark-test"; then
     VER_DTPIPE=$(container_exec benchmark-test dtpipe --version 2>/dev/null | awk '{print $2}' || echo "Unknown")
     VER_PANDAS=$(container_exec benchmark-test /opt/venv/pandas/bin/python3 -c "import pandas; print(pandas.__version__)" 2>/dev/null || echo "Unknown")
     VER_SQLALCHEMY=$(container_exec benchmark-test /opt/venv/pandas/bin/python3 -c "import sqlalchemy; print(sqlalchemy.__version__)" 2>/dev/null || echo "Unknown")
-    VER_MELTANO=$(container_exec benchmark-test /opt/venv/meltano/bin/meltano --version 2>/dev/null | awk '{print $3}' || echo "Unknown")
+    # The venv is absent unless a run selects meltano; a missing binary must read "Unknown",
+    # not the first word of docker's error line.
+    VER_MELTANO=$(container_exec benchmark-test sh -c 'test -x /opt/venv/meltano/bin/meltano && /opt/venv/meltano/bin/meltano --version' 2>/dev/null | awk '{print $3}')
+    VER_MELTANO="${VER_MELTANO:-Unknown}"
     VER_SLING=$(container_exec benchmark-test sling --version 2>/dev/null | awk '{print $2}' || echo "Unknown")
     VER_INGESTR=$(container_exec benchmark-test ingestr --version 2>/dev/null | awk '{print $3}' || echo "Unknown")
     VER_PSQL=$(container_exec benchmark-test psql --version 2>/dev/null | awk '{print $3}' || echo "Unknown")
