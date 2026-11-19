@@ -324,9 +324,9 @@ INGESTR_LATEST=$(_resolve_tag "bruin-data/ingestr" || echo "")
 
 # Fallback to default pinned versions if resolution failed (e.g. offline).
 # These are a floor, not a pin: an online run always takes the latest tag above.
-# Refreshed 2026-11-17 — an offline run silently benchmarks versions nobody is
-# comparing, so these track the latest releases.
-DTPIPE_LATEST="${DTPIPE_LATEST:-v1.17.0}"
+# An offline run silently benchmarks versions nobody is comparing, so these
+# track the latest releases.
+DTPIPE_LATEST="${DTPIPE_LATEST:-v1.18.0}"
 SLING_LATEST="${SLING_LATEST:-v1.6.7}"
 INGESTR_LATEST="${INGESTR_LATEST:-v1.1.92}"
 

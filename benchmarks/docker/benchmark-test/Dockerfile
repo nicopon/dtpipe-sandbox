@@ -96,7 +96,7 @@ RUN ARCH=$(uname -m) && \
 # 6. Download and install dtpipe standalone binary from GitHub releases. Last on
 # purpose: it is the component that changes between runs, so bumping it rebuilds
 # only this layer.
-ARG DTPIPE_VERSION=v1.17.0
+ARG DTPIPE_VERSION=v1.18.0
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then DTPIPE_ARCH="x64"; else DTPIPE_ARCH="arm64"; fi && \
     curl -fsSL -o dtpipe.tar.gz "https://github.com/nicopon/dtpipe/releases/download/${DTPIPE_VERSION}/dtpipe-linux-${DTPIPE_ARCH}.tar.gz" && \
