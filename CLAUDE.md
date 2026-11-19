@@ -2,7 +2,7 @@
 
 This file provides guidance to AI coding agents (Claude Code, OpenAI Codex, Cursor, Gemini, Copilot, Antigravity, etc.) when working with code in this repository.
 
-User-facing documentation: [README.md](README.md) · [benchmarks/README.md](benchmarks/README.md). This file captures only design intent and non-obvious constraints that require reading multiple source files to understand.
+User-facing documentation: [README.md](README.md) · [src/ArrowSocketSource/README.md](src/ArrowSocketSource/README.md) · [benchmarks/README.md](benchmarks/README.md). This file captures only design intent and non-obvious constraints that require reading multiple source files to understand.
 
 ---
 
@@ -11,6 +11,10 @@ User-facing documentation: [README.md](README.md) · [benchmarks/README.md](benc
 ### Sample project (.NET)
 - Build solution: `dotnet build DtPipe.Sandbox.slnx`
 - Run sample scenarios: `dotnet run --project src/DtPipe.Sample/DtPipe.Sample.csproj`
+
+### Node host sample (.NET + container runtime)
+- Run it end to end: `bash src/ArrowSocketSource/run.sh` (needs `docker` or `podman`, `curl` and `jq` on the host)
+- Pick another release of the packages and the coordinator image: `DTPIPE_VERSION=<version> bash src/ArrowSocketSource/run.sh`
 
 ### Infrastructure
 - Start integration test databases: `./infra/start_infra.sh`
@@ -37,6 +41,8 @@ The benchmark suite is designed so that **anyone with bash and a container runti
 ### Sample project: readable and pedagogical
 
 `src/DtPipe.Sample/` exists to illustrate the DtPipe API in its clearest form — not to be production-ready. Each scenario should remain short, self-contained, and focused on one concept. Avoid framework abstractions or boilerplate that would obscure the API surface. Dependencies should stay minimal: DtPipe NuGet packages plus only what a given scenario strictly requires.
+
+`src/ArrowSocketSource/` follows the same rule: a service that hosts a node, written to be read, with one script (`run.sh`) that proves it end to end. It consumes published packages and a published image only; nothing in it reaches into a dtpipe checkout.
 
 ---
 
@@ -189,6 +195,16 @@ B06, B08, B10, B12) fails with "table does not exist".
 `benchmark.env` is sourced by `03-*.sh` scripts but **not** by `benchmarks.sh` — which defines its own `BENCHMARK_ROWS` and passes it via `--rows`. The env file value only takes effect when a `03-*.sh` is called directly without `--rows`.
 
 The default row count is declared in **ten** places (`benchmarks.sh`, `benchmark.env`, `01-init-data.sh`, the six `03-*.sh`, `04-report.sh`) and they must stay aligned — currently `1000000`. It was raised from `250000` because at that size roughly half of a Parquet-source dtpipe measurement was process startup and source setup, while sling and ingestr start in a third of the time: part of the published competitive gap was a runtime-startup comparison. 1M brings that share to about a quarter; it does not remove it. The real fix is to measure the slope at two row counts and discard the intercept, which has not been done. Lowering `--rows` to iterate is fine; publishing numbers taken that way is not.
+
+### `ArrowSocketSource/run.sh`: one version variable, one container, throwaway `0644` keys
+
+**`DTPIPE_VERSION` is the only knob.** It becomes `DtPipeVersion` and `NodeHostVersion` (the node library and the `dtpipe` tool package, each downloaded by the csproj) and the tag of the coordinator image, so the three stay on one release. Do not add a second version variable for one of them; `COORDINATOR_IMAGE` is the deliberate exception, for an image that has no release tag (a local build, a mirror, or a published image kept while `DTPIPE_VERSION` names a locally packed prerelease). The defaults of the csproj and of `run.sh` are two literals that move together.
+
+**Only the coordinator is a container; the runner and the service are processes of the host.** The service serves its Arrow socket in the host's `/tmp` and hosts its node in the host's process, so the coordinator's `PublicUrl` is the loopback address the runner and the node both use, and the port is published on `127.0.0.1` only. The runner and `keygen` run the `DtPipe.dll` of the `dtpipe` package the build left in the NuGet cache (`dotnet <DtPipe.dll> node --runner`), not an installed tool.
+
+**The seeds are mounted read-only, and the keys are `0644` on purpose.** The image runs as uid 1654, and on Linux a bind-mounted key of mode `0600` owned by the host user is unreadable there. The keys open nothing outside one run, and the work directory holding them is removed when the run succeeds. Do not tighten the mode, and do not drop `:ro` to get around a refused seed: that is the coordinator rejecting its configuration.
+
+**The sample is not the benchmark.** `run.sh` needs `curl` and `jq` on the host and does not source `benchmarks/lib/`; the "no host dependency" rule above is the benchmark suite's, and the two share no code.
 
 ---
 

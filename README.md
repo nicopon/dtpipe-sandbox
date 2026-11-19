@@ -13,6 +13,11 @@ dtpipe-sandbox/
 ├── DtPipe.Sandbox.slnx            # .NET 10 solution file
 ├── NuGet.Config                   # NuGet feeds (public + local dev override)
 ├── src/
+│    ├── ArrowSocketSource/         # A service that hosts a node and serves its own Arrow source
+│    │    ├── ArrowSocketSource.csproj
+│    │    ├── Program.cs, OrdersTransform.cs, FakeOrdersApi.cs
+│    │    ├── run.sh                 # End to end: coordinator image, runner, service, two pipelines
+│    │    └── README.md
 │    └── DtPipe.Sample/             # C# API usage examples (6 scenarios)
 │        ├── DtPipe.Sample.csproj
 │        └── Program.cs
@@ -65,7 +70,25 @@ To test local engine changes without publishing to NuGet.org:
 
 ---
 
-## 2. Benchmark Suite
+## 2. ArrowSocketSource — a service that hosts a node
+
+A .NET service that reads an external API, applies its business rules, and serves the result as an
+Arrow stream on a socket, to the dtpipe node it hosts in its own process. A coordinator sees it as an
+ordinary data node; a runner reads the source and writes a report through the node's sinks.
+
+```bash
+bash src/ArrowSocketSource/run.sh
+```
+
+It needs the .NET 10 SDK, `docker` or `podman`, `curl` and `jq`. The script builds the service, starts the
+coordinator from its published image (the only container, on the loopback), starts a runner and the service
+as processes of the host, arms two pipelines and runs them, once more after the service restarts. It leaves
+nothing behind. `DTPIPE_VERSION` picks the release of the packages and of the image. See
+[`src/ArrowSocketSource/README.md`](src/ArrowSocketSource/README.md) for what it shows and how it is built.
+
+---
+
+## 3. Benchmark Suite
 
 Measures wall-clock time and peak memory of data-transfer tools (4 in a default run,
 6 with `--tool all`) across **19 scenarios**: 15 transfers between Parquet, CSV and three
