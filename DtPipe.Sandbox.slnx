@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/ArrowSocketSource/ArrowSocketSource.csproj" />
     <Project Path="src/DtPipe.Sample/DtPipe.Sample.csproj" />
   </Folder>
 </Solution>
